@@ -342,14 +342,16 @@ select:focus {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;           /* allow button to go below the input if needed */
 }
 
 .inline-input input {
-  flex: 1;
+  flex: 1 1 120px;
+  min-width: 0;
 }
 
 .inline-input .btn {
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
 
 .currency-row {
@@ -467,6 +469,16 @@ select:focus {
 
 .table tr:nth-child(even) td {
   background: #f9fafb;
+}
+
+.amount-label-title {
+  display: inline-block;
+  white-space: nowrap;     /* keeps "Amount (OTHER)" on one line */
+}
+
+#expAmountCurrencyLabel {
+  display: inline;         /* override any label-span block styles */
+  font-weight: inherit;
 }
 
 /* Project header */
