@@ -669,12 +669,11 @@ select:focus {
     padding: 12px 14px;
   }
 
-  /* Show main content ABOVE project list on phone */
-  .content {
+  .sidebar {
     order: 1;
   }
 
-  .sidebar {
+  .content {
     order: 2;
   }
 
