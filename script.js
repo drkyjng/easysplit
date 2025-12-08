@@ -81,6 +81,10 @@ const els = {
   customSplitContainer: document.getElementById("customSplitContainer"),
   customSplitBody: document.getElementById("customSplitBody"),
   customSplitSummary: document.getElementById("customSplitSummary"),
+
+  percentSplitContainer: document.getElementById("percentSplitContainer"),
+  percentSplitBody: document.getElementById("percentSplitBody"),
+  percentSplitSummary: document.getElementById("percentSplitSummary"),
   expensesTableBody: document.querySelector("#expensesTable tbody"),
 
   projectModal: document.getElementById("projectModal"),
