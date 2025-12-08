@@ -1,4 +1,5 @@
 // ---------- Firebase wiring ----------
+
 const {
   app,
   auth,
