@@ -883,6 +883,20 @@ function init() {
     currentUser = user;
     updateAuthUI();
 
+        // If signed in and no "yourName" saved yet, prefill from Google account
+    if (user && !yourName) {
+      const guessedName =
+        user.displayName ||
+        (user.email ? user.email.split("@")[0] : "");
+      if (guessedName) {
+        yourName = guessedName;
+        localStorage.setItem("yourName", yourName);
+        if (els.yourNameInput) {
+          els.yourNameInput.value = yourName;
+        }
+      }
+    }
+    
     projectsCache = [];
     currentProjectId = null;
 
