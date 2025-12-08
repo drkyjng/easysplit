@@ -695,8 +695,6 @@ async function onAddExpense(event) {
   // For HKD, we force raw rate = 1
   if (currency === "HKD") {
     els.expRateRaw.value = "1";
-    updateHKDTotalPreview();
-    return;
   }
   const rateRaw = parseFloat(els.expRateRaw.value || "0");
   const feePercent = parseFloat(els.expFeePercent.value || "0") || 0;
@@ -720,86 +718,115 @@ async function onAddExpense(event) {
   const amountHKD = amountForeign * effectiveRate;
 
   const splitMode = getSplitMode();
-const shares = {};
+  const shares = {};
 
-if (splitMode === "percent") {
-  const inputs = Array.from(
-    els.percentSplitBody.querySelectorAll("input[type=number]")
-  );
-  let sumPercent = 0;
-  const percMap = {};
+  if (splitMode === "percent") {
+    const inputs = Array.from(
+      els.percentSplitBody.querySelectorAll("input[type=number]")
+    );
+    let sumPercent = 0;
+    const percMap = {};
 
-  inputs.forEach((inp) => {
-    const v = parseFloat(inp.value || "0");
-    const memberId = inp.dataset.memberId;
-    if (participantIds.includes(memberId) && v > 0) {
-      percMap[memberId] = v;
-      sumPercent += v;
-    }
-  });
+    inputs.forEach((inp) => {
+      const v = parseFloat(inp.value || "0");
+      const memberId = inp.dataset.memberId;
+      if (participantIds.includes(memberId) && v > 0) {
+        percMap[memberId] = v;
+        sumPercent += v;
+      }
+    });
 
-  if (!Object.keys(percMap).length) {
-    alert("Enter percentages for at least one participant.");
-    return;
-  }
-
-  if (sumPercent <= 0) {
-    alert("Total percentage must be > 0.");
-    return;
-  }
-
-  // compute HKD shares from percentages
-  Object.entries(percMap).forEach(([memberId, p]) => {
-    const shareHKD = (p / sumPercent) * amountHKD;
-    shares[memberId] = shareHKD;
-  });
-
-  const diffCheck = Object.values(shares).reduce((a, b) => a + b, 0);
-  const diff = Math.abs(diffCheck - amountHKD);
-  if (diff > 0.5) {
-    if (
-      !confirm(
-        `Warning: the sum of percentage-based shares (${diffCheck.toFixed(
-          2
-        )} HKD) differs from HKD total (${amountHKD.toFixed(
-          2
-        )} HKD) by ${diff.toFixed(2)}. Save anyway?`
-      )
-    ) {
+    if (!Object.keys(percMap).length) {
+      alert("Enter percentages for at least one participant.");
       return;
     }
-  }
-} else if (splitMode === "custom") {
-  const inputs = Array.from(
-    els.customSplitBody.querySelectorAll("input[type=number]")
-  );
-  let sumShares = 0;
-  inputs.forEach((inp) => {
-    const v = parseFloat(inp.value || "0");
-    const memberId = inp.dataset.memberId;
-    if (participantIds.includes(memberId) && v > 0) {
-      shares[memberId] = v;
-      sumShares += v;
-    }
-  });
-  if (!Object.keys(shares).length) {
-    alert("Enter custom shares for at least one participant.");
-    return;
-  }
-  const diff = Math.abs(sumShares - amountHKD);
-  if (diff > 0.5) {
-    if (
-      !confirm(
-        `Warning: total custom shares (${sumShares.toFixed(
-          2
-        )} HKD) differ from HKD total (${amountHKD.toFixed(
-          2
-        )} HKD) by ${diff.toFixed(2)}. Save anyway?`
-      )
-    ) {
+
+    if (sumPercent <= 0) {
+      alert("Total percentage must be > 0.");
       return;
     }
+
+    // compute HKD shares from percentages
+    Object.entries(percMap).forEach(([memberId, p]) => {
+      const shareHKD = (p / sumPercent) * amountHKD;
+      shares[memberId] = shareHKD;
+    });
+
+    const diffCheck = Object.values(shares).reduce((a, b) => a + b, 0);
+    const diff = Math.abs(diffCheck - amountHKD);
+    if (diff > 0.5) {
+      if (
+        !confirm(
+          `Warning: the sum of percentage-based shares (${diffCheck.toFixed(
+            2
+          )} HKD) differs from HKD total (${amountHKD.toFixed(
+            2
+          )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+  } else if (splitMode === "custom") {
+    const inputs = Array.from(
+      els.customSplitBody.querySelectorAll("input[type=number]")
+    );
+    let sumShares = 0;
+    inputs.forEach((inp) => {
+      const v = parseFloat(inp.value || "0");
+      const memberId = inp.dataset.memberId;
+      if (participantIds.includes(memberId) && v > 0) {
+        shares[memberId] = v;
+        sumShares += v;
+      }
+    });
+    if (!Object.keys(shares).length) {
+      alert("Enter custom shares for at least one participant.");
+      return;
+    }
+    const diff = Math.abs(sumShares - amountHKD);
+    if (diff > 0.5) {
+      if (
+        !confirm(
+          `Warning: total custom shares (${sumShares.toFixed(
+            2
+          )} HKD) differ from HKD total (${amountHKD.toFixed(
+            2
+          )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+        )
+      ) {
+        return;
+      }
+    }
   }
+
+  const expense = {
+    id: newId(),
+    description,
+    date,
+    payerId,
+    currency,
+    amountForeign,
+    rateSource,
+    rateRaw,
+    feePercent,
+    effectiveRate,
+    amountHKD,
+    participantIds,
+    splitMode,
+    shares: (splitMode === "custom" || splitMode === "percent") ? shares : null,
+    createdAt: new Date().toISOString(),
+  };
+
+  await saveExpense(project.id, expense, true);
+  const refreshedProject = getCurrentProject();
+  await loadExpensesForProject(refreshedProject.id);
+  renderExpenses(refreshedProject);
+  renderBalances(refreshedProject);
+
+  els.expDescription.value = "";
+  els.expAmount.value = "";
+  updateHKDTotalPreview();
 }
 
   const expense = {
@@ -1232,12 +1259,11 @@ function init() {
   els.addExpenseForm.addEventListener("submit", onAddExpense);
   els.fetchRateBtn.addEventListener("click", onFetchRate);
 
-  // Update HKD preview when inputs change
+    // Update HKD preview when inputs change
   els.expAmount.addEventListener("input", updateHKDTotalPreview);
   els.expRateRaw.addEventListener("input", updateHKDTotalPreview);
   els.expFeePercent.addEventListener("input", updateHKDTotalPreview);
 
-  // already present:
   els.expCurrency.addEventListener("change", () => {
     updateCurrencyUI();
     updateHKDTotalPreview();
@@ -1252,37 +1278,27 @@ function init() {
   // Initial UI
   updateCurrencyUI();
   updateHKDTotalPreview();
-  });
-
-  if (els.expCurrencyOther) {
-    els.expCurrencyOther.addEventListener("input", () => {
-      updateCurrencyUI();
-    });
-  }
-
-  // Initial state
-  updateCurrencyUI();
 
   // split mode toggle
-  Array.from(els.addExpenseForm.elements["splitMode"].forEach((r) => {
-  r.addEventListener("change", () => {
-    const mode = getSplitMode();
+  Array.from(els.addExpenseForm.elements["splitMode"]).forEach((r) => {
+    r.addEventListener("change", () => {
+      const mode = getSplitMode();
 
-    if (mode === "percent") {
-      els.percentSplitContainer.classList.remove("hidden");
-      els.customSplitContainer.classList.add("hidden");
-      updatePercentSplitSummary();
-    } else if (mode === "custom") {
-      els.customSplitContainer.classList.remove("hidden");
-      els.percentSplitContainer.classList.add("hidden");
-      updateCustomSplitSummary();
-    } else {
-      // equal
-      els.customSplitContainer.classList.add("hidden");
-      els.percentSplitContainer.classList.add("hidden");
-    }
+      if (mode === "percent") {
+        els.percentSplitContainer.classList.remove("hidden");
+        els.customSplitContainer.classList.add("hidden");
+        updatePercentSplitSummary();
+      } else if (mode === "custom") {
+        els.customSplitContainer.classList.remove("hidden");
+        els.percentSplitContainer.classList.add("hidden");
+        updateCustomSplitSummary();
+      } else {
+        // equal
+        els.customSplitContainer.classList.add("hidden");
+        els.percentSplitContainer.classList.add("hidden");
+      }
+    });
   });
-});
 
   // Auth + data
   onAuthStateChanged(auth, async (user) => {
