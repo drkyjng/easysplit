@@ -171,13 +171,30 @@
                 <select id="expPayer" required></select>
               </label>
               <label>
-                Currency
-                <input type="text" id="expCurrency" required placeholder="e.g. JPY, USD, EUR" />
-              </label>
-              <label>
-                Amount (foreign)
-                <input type="number" id="expAmount" required min="0" step="0.01" />
-              </label>
+  Currency
+  <div class="currency-row">
+    <select id="expCurrency" required>
+      <option value="HKD" selected>HKD – Hong Kong Dollar</option>
+      <option value="USD">USD – US Dollar</option>
+      <option value="JPY">JPY – Japanese Yen</option>
+      <option value="CNY">CNY – Chinese Yuan</option>
+      <option value="OTHER">Other…</option>
+    </select>
+    <input
+      type="text"
+      id="expCurrencyOther"
+      class="hidden"
+      placeholder="e.g. EUR"
+      maxlength="3"
+      style="text-transform:uppercase;"
+    />
+  </div>
+</label>
+
+<label>
+  Amount (<span id="expAmountCurrencyLabel">HKD</span>)
+  <input type="number" id="expAmount" required min="0" step="0.01" />
+</label>
               <label>
                 Rate source
                 <select id="expRateSource">
