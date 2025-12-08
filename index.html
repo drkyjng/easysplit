@@ -5,6 +5,71 @@
   <title>HKD Bill Splitter</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
+  <!-- Firebase SDK v9 (modular) via CDN -->
+<script type="module">
+  // Import the pieces we need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getAuth,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signOut
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import {
+    getFirestore,
+    collection,
+    doc,
+    addDoc,
+    setDoc,
+    getDoc,
+    getDocs,
+    query,
+    where,
+    orderBy,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  // TODO: replace this config with YOUR Firebase web config from Project Settings
+const firebaseConfig = {
+  apiKey: "AIzaSyBdeYG1lO3z7I1Vqk3OOmrBkjOdkrZFvGU",
+  authDomain: "easysplit-8d59d.firebaseapp.com",
+  projectId: "easysplit-8d59d",
+  storageBucket: "easysplit-8d59d.firebasestorage.app",
+  messagingSenderId: "632617460750",
+  appId: "1:632617460750:web:8b87c9c5971d9321cb085f"
+};
+
+  // Initialize Firebase app
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Expose to window so script.js can use it
+  window._firebase = { app, auth, db, 
+    firebaseAuth: {
+      onAuthStateChanged,
+      signInWithEmailAndPassword,
+      createUserWithEmailAndPassword,
+      signOut
+    },
+    firebaseFirestore: {
+      collection,
+      doc,
+      addDoc,
+      setDoc,
+      getDoc,
+      getDocs,
+      query,
+      where,
+      orderBy,
+      serverTimestamp
+    }
+  };
+</script>
+
+<!-- Your existing script -->
+<script src="script.js" defer></script>
 </head>
 <body>
   <div class="app">
@@ -210,6 +275,5 @@
     </div>
   </div>
 
-  <script src="script.js" defer></script>
 </body>
 </html>
