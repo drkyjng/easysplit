@@ -24,6 +24,8 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;  /* stop horizontal scrolling on mobile */
 }
 
 /* Global */
@@ -573,27 +575,49 @@ select:focus {
 
 /* Tablet & small laptop */
 @media (max-width: 900px) {
+  /* Header stacks vertically */
   .app-header {
     flex-direction: column;
     align-items: flex-start;
+    padding: 10px 14px;
+  }
+
+  .app-title h1 {
+    font-size: 1.25rem;
+  }
+
+  .app-title p {
+    font-size: 0.85rem;
   }
 
   .user-settings {
     align-items: flex-start;
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
     flex-wrap: wrap;
+    gap: 6px 10px;
   }
 
+  /* Main layout: 1 column */
   .app-main {
-    grid-template-columns: 1fr; /* sidebar on top, content below */
-    gap: 12px;
+    display: flex;              /* override grid */
+    flex-direction: column;
+    padding: 10px 14px 16px;
   }
 
-  .grid-2 {
-    grid-template-columns: 1fr;
+  .sidebar,
+  .content {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 0;
+    margin: 0;
   }
 
+  .sidebar {
+    margin-bottom: 12px;
+  }
+
+  /* Project header (top of main card) */
   .project-header {
     flex-direction: column;
     align-items: flex-start;
@@ -602,11 +626,18 @@ select:focus {
 
   .project-header-actions {
     width: 100%;
-    justify-content: flex-start;
-    gap: 8px;
+    display: flex;
     flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-start;
   }
 
+  /* Forms: vertical layout */
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Tables a bit tighter */
   .table th,
   .table td {
     padding: 6px 8px;
@@ -614,18 +645,12 @@ select:focus {
   }
 }
 
-/* “Phone” layout */
+/* Phone layout */
 @media (max-width: 600px) {
+  /* Header more compact */
   .app-header {
-    padding: 10px 12px;
-  }
-
-  .app-main {
-    padding: 10px 12px 16px;
-  }
-
-  .card {
-    padding: 14px;
+    padding: 8px 10px;
+    gap: 8px;
   }
 
   .app-title h1 {
@@ -636,20 +661,44 @@ select:focus {
     font-size: 0.8rem;
   }
 
-  .auth-controls {
-    flex-wrap: wrap;
+  .app-main {
+    padding: 8px 10px 14px;
   }
 
-  .btn.small {
-    padding: 6px 10px;
-    font-size: 0.8rem;
+  .card {
+    padding: 12px 14px;
+  }
+
+  /* Show main content ABOVE project list on phone */
+  .content {
+    order: 1;
   }
 
   .sidebar {
-    order: 2;     /* content first, projects list below */
+    order: 2;
   }
 
-  .content {
-    order: 1;
+  /* Make tap targets comfortable */
+  input,
+  select,
+  button,
+  .btn {
+    font-size: 16px; /* avoids iOS zoom and tiny text */
+  }
+
+  /* Tables scroll horizontally instead of overflowing */
+  .table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    font-size: 0.8rem;
+  }
+
+  /* Chips / filters wrap nicely */
+  .chip-group {
+    flex-wrap: wrap;
+    gap: 4px;
   }
 }
