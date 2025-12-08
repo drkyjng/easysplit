@@ -902,14 +902,14 @@ async function deleteExpense(project, expenseId) {
   if (!confirm("Delete this expense?")) return;
 
   try {
-    // 1. Delete the document in Firestore
+    // 1. Delete from Firestore
     const ref = doc(expensesCol(project.id), expenseId);
     await deleteDoc(ref);
 
-    // 2. Reload expenses for this project from Firestore
+    // 2. Reload this project's expenses from Firestore
     await loadExpensesForProject(project.id);
 
-    // 3. Re-render using the fresh data from projectsCache
+    // 3. Re-render from fresh cache
     const refreshed = getCurrentProject();
     if (refreshed) {
       renderExpenses(refreshed);
