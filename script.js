@@ -902,20 +902,16 @@ async function deleteExpense(project, expenseId) {
   if (!confirm("Delete this expense?")) return;
 
   try {
-    // Delete from Firestore
-    await deleteDoc(doc(expensesCol(project.id), expenseId));
+    // 1. Delete the document in Firestore
+    const ref = doc(expensesCol(project.id), expenseId);
+    await deleteDoc(ref);
 
-    // Update local project cache
-    project.expenses = (project.expenses || []).filter((e) => e.id !== expenseId);
-    const idx = projectsCache.findIndex((p) => p.id === project.id);
-    if (idx !== -1) {
-      projectsCache[idx].expenses = project.expenses;
-    }
+    // 2. Reload expenses for this project from Firestore
+    await loadExpensesForProject(project.id);
 
-    // Re-load from Firestore to be sure it's gone
+    // 3. Re-render using the fresh data from projectsCache
     const refreshed = getCurrentProject();
     if (refreshed) {
-      await loadExpensesForProject(refreshed.id);
       renderExpenses(refreshed);
       renderBalances(refreshed);
     }
