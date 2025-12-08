@@ -87,6 +87,8 @@ const els = {
   percentSplitSummary: document.getElementById("percentSplitSummary"),
   expensesTableBody: document.querySelector("#expensesTable tbody"),
 
+    hkdTotalPreview: document.getElementById("hkdTotalPreview"),
+
   projectModal: document.getElementById("projectModal"),
   projectModalTitle: document.getElementById("projectModalTitle"),
   projectForm: document.getElementById("projectForm"),
@@ -440,14 +442,15 @@ function computeBalances(project) {
     const participants = exp.participantIds || [];
     if (!participants.length) return;
 
-    if (exp.splitMode === "custom" && exp.shares) {
-      Object.entries(exp.shares).forEach(([memberId, share]) => {
-        const s = Number(share) || 0;
-        if (!(project.members || []).find((m) => m.id === memberId)) return;
-        if (memberId === exp.payerId) return;
-        balances[memberId] += s;
-        balances[exp.payerId] -= s;
-      });
+    if ((exp.splitMode === "custom" || exp.splitMode === "percent") && exp.shares) {
+  Object.entries(exp.shares).forEach(([memberId, share]) => {
+    // HKD shares computed already
+    const s = Number(share) || 0;
+    if (!project.members.find((m) => m.id === memberId)) return;
+    if (memberId === exp.payerId) return;
+    balances[memberId] += s;
+    balances[exp.payerId] -= s;
+  });
     } else {
       const perPerson = exp.amountHKD / participants.length;
       participants.forEach((pid) => {
@@ -516,7 +519,7 @@ function renderExpenseFormMembers(project) {
     els.expPayer.appendChild(opt);
   });
 
-  // participants
+  // participants check list
   els.expParticipants.innerHTML = "";
   (project.members || []).forEach((m) => {
     const label = document.createElement("label");
@@ -534,6 +537,7 @@ function renderExpenseFormMembers(project) {
     els.expParticipants.appendChild(label);
   });
 
+  buildPercentSplitRows(project);
   buildCustomSplitRows(project);
 }
 
@@ -592,6 +596,49 @@ function updateCustomSplitSummary() {
   }
 }
 
+function buildPercentSplitRows(project) {
+  els.percentSplitBody.innerHTML = "";
+  (project.members || []).forEach((m) => {
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    nameTd.textContent = m.name + (isMe(m) ? " (you)" : "");
+    tr.appendChild(nameTd);
+
+    const shareTd = document.createElement("td");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "0.01";
+    input.dataset.memberId = m.id;
+    input.placeholder = "0";
+    input.addEventListener("input", updatePercentSplitSummary);
+    shareTd.appendChild(input);
+    tr.appendChild(shareTd);
+
+    els.percentSplitBody.appendChild(tr);
+  });
+  updatePercentSplitSummary();
+}
+
+function updatePercentSplitSummary() {
+  const inputs = Array.from(
+    els.percentSplitBody.querySelectorAll("input[type=number]")
+  );
+  let sum = 0;
+  inputs.forEach((inp) => {
+    const v = parseFloat(inp.value || "0");
+    if (v > 0) sum += v;
+  });
+
+  if (sum > 0) {
+    els.percentSplitSummary.textContent =
+      `Total: ${sum.toFixed(2)}% (should be around 100%).`;
+  } else {
+    els.percentSplitSummary.textContent = "No percentages entered yet.";
+  }
+}
+
 // ---------- FX rate fetch ----------
 
 async function onFetchRate() {
@@ -621,6 +668,7 @@ async function onFetchRate() {
       throw new Error("No HKD rate found");
     }
     els.expRateRaw.value = data.rates.HKD.toFixed(6);
+    updateHKDTotalPreview();
   } catch (err) {
     console.error(err);
     alert("Failed to fetch rate. You can enter it manually.");
@@ -647,6 +695,8 @@ async function onAddExpense(event) {
   // For HKD, we force raw rate = 1
   if (currency === "HKD") {
     els.expRateRaw.value = "1";
+    updateHKDTotalPreview();
+    return;
   }
   const rateRaw = parseFloat(els.expRateRaw.value || "0");
   const feePercent = parseFloat(els.expFeePercent.value || "0") || 0;
@@ -670,8 +720,87 @@ async function onAddExpense(event) {
   const amountHKD = amountForeign * effectiveRate;
 
   const splitMode = getSplitMode();
-  const shares = {};
-  // ... keep your existing custom-split logic, just unchanged ...
+const shares = {};
+
+if (splitMode === "percent") {
+  const inputs = Array.from(
+    els.percentSplitBody.querySelectorAll("input[type=number]")
+  );
+  let sumPercent = 0;
+  const percMap = {};
+
+  inputs.forEach((inp) => {
+    const v = parseFloat(inp.value || "0");
+    const memberId = inp.dataset.memberId;
+    if (participantIds.includes(memberId) && v > 0) {
+      percMap[memberId] = v;
+      sumPercent += v;
+    }
+  });
+
+  if (!Object.keys(percMap).length) {
+    alert("Enter percentages for at least one participant.");
+    return;
+  }
+
+  if (sumPercent <= 0) {
+    alert("Total percentage must be > 0.");
+    return;
+  }
+
+  // compute HKD shares from percentages
+  Object.entries(percMap).forEach(([memberId, p]) => {
+    const shareHKD = (p / sumPercent) * amountHKD;
+    shares[memberId] = shareHKD;
+  });
+
+  const diffCheck = Object.values(shares).reduce((a, b) => a + b, 0);
+  const diff = Math.abs(diffCheck - amountHKD);
+  if (diff > 0.5) {
+    if (
+      !confirm(
+        `Warning: the sum of percentage-based shares (${diffCheck.toFixed(
+          2
+        )} HKD) differs from HKD total (${amountHKD.toFixed(
+          2
+        )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+      )
+    ) {
+      return;
+    }
+  }
+} else if (splitMode === "custom") {
+  const inputs = Array.from(
+    els.customSplitBody.querySelectorAll("input[type=number]")
+  );
+  let sumShares = 0;
+  inputs.forEach((inp) => {
+    const v = parseFloat(inp.value || "0");
+    const memberId = inp.dataset.memberId;
+    if (participantIds.includes(memberId) && v > 0) {
+      shares[memberId] = v;
+      sumShares += v;
+    }
+  });
+  if (!Object.keys(shares).length) {
+    alert("Enter custom shares for at least one participant.");
+    return;
+  }
+  const diff = Math.abs(sumShares - amountHKD);
+  if (diff > 0.5) {
+    if (
+      !confirm(
+        `Warning: total custom shares (${sumShares.toFixed(
+          2
+        )} HKD) differ from HKD total (${amountHKD.toFixed(
+          2
+        )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+      )
+    ) {
+      return;
+    }
+  }
+}
 
   const expense = {
     id: newId(),
@@ -789,18 +918,20 @@ function renderExpenses(project) {
     tr.appendChild(participantsTd);
 
     const splitTd = document.createElement("td");
-    if (exp.splitMode === "custom" && exp.shares) {
-      const parts = Object.entries(exp.shares)
-        .map(([id, share]) => {
-          const m = (project.members || []).find((mm) => mm.id === id);
-          return m ? `${m.name}: ${Number(share).toFixed(2)}` : null;
-        })
-        .filter(Boolean);
-      splitTd.textContent = parts.join(" | ");
-    } else {
-      const perPerson = exp.amountHKD / ((exp.participantIds || []).length || 1);
-      splitTd.textContent = `Equal: ${perPerson.toFixed(2)} each`;
-    }
+    if ((exp.splitMode === "custom" || exp.splitMode === "percent") && exp.shares) {
+  const parts = Object.entries(exp.shares)
+    .map(([id, share]) => {
+      const m = project.members.find((mm) => mm.id === id);
+      return m ? `${m.name}: ${Number(share).toFixed(2)}` : null;
+    })
+    .filter(Boolean);
+  splitTd.textContent =
+    (exp.splitMode === "percent" ? "By % → " : "Custom HKD: ") +
+    parts.join(" | ");
+} else {
+  const perPerson = exp.amountHKD / (exp.participantIds.length || 1);
+  splitTd.textContent = `Equal: ${perPerson.toFixed(2)} each`;
+}
     tr.appendChild(splitTd);
 
     const lastTd = document.createElement("td");
@@ -1038,6 +1169,38 @@ function updateCurrencyUI() {
   }
 }
 
+function updateHKDTotalPreview() {
+  if (!els.hkdTotalPreview) return;
+
+  const currency = (getSelectedCurrency() || "").toUpperCase();
+  const amount = parseFloat(els.expAmount.value || "0");
+  let rateRaw = parseFloat(els.expRateRaw.value || "0") || 0;
+  const feePercent = parseFloat(els.expFeePercent.value || "0") || 0;
+
+  if (!amount) {
+    els.hkdTotalPreview.textContent =
+      "HKD total (after FX & fee): —";
+    return;
+  }
+
+  if (currency === "HKD") {
+    // For HKD we treat FX rate as 1
+    rateRaw = 1;
+  }
+
+  if (currency !== "HKD" && !rateRaw) {
+    els.hkdTotalPreview.textContent =
+      "HKD total: fill in FX rate to see conversion.";
+    return;
+  }
+
+  const effectiveRate = rateRaw * (1 + feePercent / 100);
+  const totalHKD = amount * effectiveRate;
+
+  els.hkdTotalPreview.textContent =
+    "HKD total (after FX & fee): " + totalHKD.toFixed(2) + " HKD";
+}
+
 // ---------- Init ----------
 
 function init() {
@@ -1069,9 +1232,26 @@ function init() {
   els.addExpenseForm.addEventListener("submit", onAddExpense);
   els.fetchRateBtn.addEventListener("click", onFetchRate);
 
-    // Currency dropdown behaviour
+  // Update HKD preview when inputs change
+  els.expAmount.addEventListener("input", updateHKDTotalPreview);
+  els.expRateRaw.addEventListener("input", updateHKDTotalPreview);
+  els.expFeePercent.addEventListener("input", updateHKDTotalPreview);
+
+  // already present:
   els.expCurrency.addEventListener("change", () => {
     updateCurrencyUI();
+    updateHKDTotalPreview();
+  });
+  if (els.expCurrencyOther) {
+    els.expCurrencyOther.addEventListener("input", () => {
+      updateCurrencyUI();
+      updateHKDTotalPreview();
+    });
+  }
+
+  // Initial UI
+  updateCurrencyUI();
+  updateHKDTotalPreview();
   });
 
   if (els.expCurrencyOther) {
@@ -1084,17 +1264,25 @@ function init() {
   updateCurrencyUI();
 
   // split mode toggle
-  Array.from(els.addExpenseForm.elements["splitMode"]).forEach((r) => {
-    r.addEventListener("change", () => {
-      const mode = getSplitMode();
-      if (mode === "custom") {
-        els.customSplitContainer.classList.remove("hidden");
-        updateCustomSplitSummary();
-      } else {
-        els.customSplitContainer.classList.add("hidden");
-      }
-    });
+  Array.from(els.addExpenseForm.elements["splitMode"].forEach((r) => {
+  r.addEventListener("change", () => {
+    const mode = getSplitMode();
+
+    if (mode === "percent") {
+      els.percentSplitContainer.classList.remove("hidden");
+      els.customSplitContainer.classList.add("hidden");
+      updatePercentSplitSummary();
+    } else if (mode === "custom") {
+      els.customSplitContainer.classList.remove("hidden");
+      els.percentSplitContainer.classList.add("hidden");
+      updateCustomSplitSummary();
+    } else {
+      // equal
+      els.customSplitContainer.classList.add("hidden");
+      els.percentSplitContainer.classList.add("hidden");
+    }
   });
+});
 
   // Auth + data
   onAuthStateChanged(auth, async (user) => {
