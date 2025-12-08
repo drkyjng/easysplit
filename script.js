@@ -746,7 +746,7 @@ function renderExpenses(project) {
   if (!expenses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 10;
+    td.colSpan = 11;
     td.textContent = "No expenses yet.";
     td.className = "muted small";
     tr.appendChild(td);
@@ -817,6 +817,20 @@ function renderExpenses(project) {
       splitTd.textContent = `Equal: ${perPerson.toFixed(2)} each`;
     }
     tr.appendChild(splitTd);
+
+    const lastTd = document.createElement("td");
+    const updatedDate = tsToDateMaybe(exp.lastUpdatedAt);
+    if (updatedDate) {
+      const who = exp.lastUpdatedByName || "someone";
+      lastTd.textContent =
+        `${updatedDate.toLocaleDateString()} ` +
+        `${updatedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` +
+        ` – ${who}`;
+    } else {
+      lastTd.textContent = "—";
+      lastTd.className = "muted small";
+    }
+    tr.appendChild(lastTd);
 
     const actionsTd = document.createElement("td");
     if (canEdit) {
