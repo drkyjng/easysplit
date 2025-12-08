@@ -80,6 +80,7 @@ const els = {
   projectForm: document.getElementById("projectForm"),
   projectNameInput: document.getElementById("projectNameInput"),
   projectMembersInput: document.getElementById("projectMembersInput"),
+  projectEditorsInput: document.getElementById("projectEditorsInput"),
   cancelProjectBtn: document.getElementById("cancelProjectBtn"),
 };
 
@@ -184,6 +185,17 @@ function getCurrentProject() {
 
 function isOwner(project) {
   return currentUser && project && project.ownerUid === currentUser.uid;
+}
+
+function canEditProject(project) {
+  if (!currentUser || !project) return false;
+  if (project.ownerUid === currentUser.uid) return true;
+
+  const email = (currentUser.email || "").toLowerCase();
+  const editors = (project.editorEmails || []).map((e) => e.toLowerCase());
+  if (!email) return false;
+
+  return editors.includes(email);
 }
 
 function isMe(member) {
@@ -291,21 +303,27 @@ function renderCurrentProject() {
   const memberCount = (project.members || []).length;
   els.projectMeta.textContent = `${memberCount} member(s) • Created ${createdAtDate.toLocaleDateString()}`;
 
-  const canEdit = isOwner(project);
+    const owner = isOwner(project);
+  const canEdit = canEditProject(project);
 
-  // Toggle edit controls
-  els.editProjectBtn.style.display = canEdit ? "inline-flex" : "none";
-  els.deleteProjectBtn.style.display = canEdit ? "inline-flex" : "none";
+  // Owner-only controls
+  els.editProjectBtn.style.display = owner ? "inline-flex" : "none";
+  els.deleteProjectBtn.style.display = owner ? "inline-flex" : "none";
+
+  // Expense form visible to owner + editors
   if (els.addExpenseCard) {
     els.addExpenseCard.style.display = canEdit ? "block" : "none";
   }
 
-  if (canEdit) {
+  if (owner) {
     els.editModeBadge.classList.remove("readonly");
     els.editModeBadge.textContent = "Owner mode";
+  } else if (canEdit) {
+    els.editModeBadge.classList.remove("readonly");
+    els.editModeBadge.textContent = "Editor mode";
   } else {
     els.editModeBadge.classList.add("readonly");
-    els.editModeBadge.textContent = currentUser ? "View only (not owner)" : "View only (guest)";
+    els.editModeBadge.textContent = currentUser ? "View only (not shared editor)" : "View only (guest)";
   }
 
   renderMembers(project);
@@ -359,7 +377,7 @@ function computeBalances(project) {
 
 function renderBalances(project) {
   const balances = computeBalances(project);
-  const canEdit = isOwner(project);
+  const canEdit = canEditProject(project);
   els.balancesTableBody.innerHTML = "";
 
   (project.members || []).forEach((m) => {
@@ -531,8 +549,8 @@ async function onAddExpense(event) {
   const project = getCurrentProject();
   if (!project) return;
 
-  if (!isOwner(project)) {
-    alert("Only the project owner can add expenses.");
+  if (!canEditProject(project)) {
+    alert("Only the owner or shared editors can add expenses.");
     return;
   }
 
@@ -621,8 +639,8 @@ async function onAddExpense(event) {
 // ---------- deleteExpense with Firestore ----------
 
 async function deleteExpense(project, expenseId) {
-  if (!isOwner(project)) {
-    alert("Only the project owner can delete expenses.");
+  if (!canEditProject(project)) {
+    alert("Only the owner or shared editors can delete expenses.");
     return;
   }
   if (!confirm("Delete this expense?")) return;
@@ -642,8 +660,8 @@ async function deleteExpense(project, expenseId) {
 // ---------- Render expenses table ----------
 
 function renderExpenses(project) {
-  const expenses = project.expenses || [];
-  const canEdit = isOwner(project);
+    const expenses = project.expenses || [];
+  const canEdit = canEditProject(project);
   els.expensesTableBody.innerHTML = "";
   if (!expenses.length) {
     const tr = document.createElement("tr");
@@ -743,16 +761,18 @@ function openProjectModal(projectId) {
   const isEdit = !!projectId;
   els.projectModalTitle.textContent = isEdit ? "Edit project" : "New project";
 
-  if (isEdit) {
+    if (isEdit) {
     const project = projectsCache.find((p) => p.id === projectId);
     if (!project) return;
     els.projectNameInput.value = project.name;
     els.projectMembersInput.value = (project.members || [])
       .map((m) => m.name)
       .join(", ");
+    els.projectEditorsInput.value = (project.editorEmails || []).join(", ");
   } else {
     els.projectNameInput.value = "";
     els.projectMembersInput.value = yourName ? yourName : "";
+    els.projectEditorsInput.value = "";
   }
 
   els.projectModal.classList.remove("hidden");
@@ -776,6 +796,11 @@ async function onProjectFormSubmit(event) {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
+  const editorsRaw = els.projectEditorsInput.value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
   if (!name || !membersRaw.length) {
     alert("Please fill in project name and at least one member.");
     return;
@@ -785,6 +810,7 @@ async function onProjectFormSubmit(event) {
     id: newId(),
     name: n
   }));
+  const editorEmails = editorsRaw; // store as array of strings
 
   if (editingProjectId) {
     const project = projectsCache.find((p) => p.id === editingProjectId);
@@ -798,13 +824,15 @@ async function onProjectFormSubmit(event) {
     }
     project.name = name;
     project.members = members;
+    project.editorEmails = editorEmails;
     await saveProject(project, false);
   } else {
     const newProject = {
       name,
       ownerUid: currentUser.uid,
       members,
-      settled: {}
+      settled: {},
+      editorEmails
     };
     await saveProject(newProject, true);
     currentProjectId = newProject.id;
