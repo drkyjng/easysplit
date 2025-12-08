@@ -133,7 +133,7 @@ async function loadProjectsForUser(uid) {
       orderBy("createdAt", "desc")
     );
     const snap = await getDocs(q);
-    projectsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    projectsCache = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
   } catch (e) {
     console.error("loadProjectsForUser failed:", e);
     alert("Failed to load your projects: " + (e.message || e.code));
@@ -143,7 +143,7 @@ async function loadProjectsForUser(uid) {
 async function loadExpensesForProject(projectId) {
   const q = query(expensesCol(projectId), orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
-  const expenses = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const expenses = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
 
   const idx = projectsCache.findIndex((p) => p.id === projectId);
   if (idx !== -1) {
@@ -865,7 +865,6 @@ async function onAddExpense(event) {
   } else {
     // new expense
     expense = {
-      id: newId(),
       description,
       date,
       payerId,
