@@ -10,8 +10,8 @@ const {
 
 const {
   onAuthStateChanged,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut
 } = firebaseAuth;
 
@@ -29,7 +29,7 @@ const {
   serverTimestamp
 } = firebaseFirestore;
 
-// ---------- Minimal UI state (Firestore is the source of truth) ----------
+// ---------- Minimal UI state ----------
 
 let currentUser = null;
 let projectsCache = [];      // [{ id, name, ownerUid, members, settled, createdAt, expenses? }]
@@ -39,6 +39,10 @@ let yourName = localStorage.getItem("yourName") || "";
 // ---------- DOM refs ----------
 
 const els = {
+  userStatus: document.getElementById("userStatus"),
+  googleSignInBtn: document.getElementById("googleSignInBtn"),
+  signOutBtn: document.getElementById("signOutBtn"),
+
   yourNameInput: document.getElementById("yourNameInput"),
   projectsList: document.getElementById("projectsList"),
   addProjectBtn: document.getElementById("addProjectBtn"),
@@ -51,7 +55,9 @@ const els = {
   projectMeta: document.getElementById("projectMeta"),
   membersList: document.getElementById("membersList"),
   balancesTableBody: document.querySelector("#balancesTable tbody"),
+  editModeBadge: document.getElementById("editModeBadge"),
 
+  addExpenseCard: document.getElementById("addExpenseCard"),
   addExpenseForm: document.getElementById("addExpenseForm"),
   expDescription: document.getElementById("expDescription"),
   expDate: document.getElementById("expDate"),
@@ -170,9 +176,51 @@ function getCurrentProject() {
   return projectsCache.find((p) => p.id === currentProjectId) || null;
 }
 
+function isOwner(project) {
+  return currentUser && project && project.ownerUid === currentUser.uid;
+}
+
 function isMe(member) {
   if (!yourName) return false;
   return member.name.trim().toLowerCase() === yourName.trim().toLowerCase();
+}
+
+// ---------- Auth UI ----------
+
+function updateAuthUI() {
+  if (!els.userStatus) return;
+  if (currentUser) {
+    const name = currentUser.displayName || currentUser.email || "Signed in";
+    els.userStatus.textContent = `Signed in as ${name}`;
+    els.googleSignInBtn.style.display = "none";
+    els.signOutBtn.style.display = "inline-flex";
+    els.addProjectBtn.style.display = "inline-flex";
+  } else {
+    els.userStatus.textContent = "Not signed in";
+    els.googleSignInBtn.style.display = "inline-flex";
+    els.signOutBtn.style.display = "none";
+    els.addProjectBtn.style.display = "none";
+  }
+}
+
+async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  try {
+    await signInWithPopup(auth, provider);
+  } catch (e) {
+    console.error(e);
+    alert("Google sign-in failed: " + (e.message || e.code));
+  }
+}
+
+async function handleSignOut() {
+  try {
+    await signOut(auth);
+  } catch (e) {
+    console.error(e);
+    alert("Sign-out failed: " + (e.message || e.code));
+  }
 }
 
 // ---------- Rendering: projects ----------
@@ -183,7 +231,9 @@ function renderProjectsList() {
 
   if (!projectsCache.length) {
     const li = document.createElement("li");
-    li.textContent = "No projects yet";
+    li.textContent = currentUser
+      ? "No projects yet. Click + New to create one."
+      : "No projects. Sign in to create your own.";
     li.className = "muted small";
     list.appendChild(li);
     return;
@@ -213,6 +263,8 @@ function renderCurrentProject() {
   if (!project) {
     els.projectView.style.display = "none";
     els.noProjectMessage.style.display = "block";
+    els.editModeBadge.classList.add("readonly");
+    els.editModeBadge.textContent = currentUser ? "No project selected" : "Sign in or open a shared link";
     return;
   }
 
@@ -230,7 +282,24 @@ function renderCurrentProject() {
     createdAtDate = new Date();
   }
 
-  els.projectMeta.textContent = `${(project.members || []).length} member(s) • Created ${createdAtDate.toLocaleDateString()}`;
+  const memberCount = (project.members || []).length;
+  els.projectMeta.textContent = `${memberCount} member(s) • Created ${createdAtDate.toLocaleDateString()}`;
+
+  const canEdit = isOwner(project);
+
+  // Toggle edit controls
+  els.editProjectBtn.style.display = canEdit ? "inline-flex" : "none";
+  if (els.addExpenseCard) {
+    els.addExpenseCard.style.display = canEdit ? "block" : "none";
+  }
+
+  if (canEdit) {
+    els.editModeBadge.classList.remove("readonly");
+    els.editModeBadge.textContent = "Owner mode";
+  } else {
+    els.editModeBadge.classList.add("readonly");
+    els.editModeBadge.textContent = currentUser ? "View only (not owner)" : "View only (guest)";
+  }
 
   renderMembers(project);
   renderExpenseFormMembers(project);
@@ -283,6 +352,7 @@ function computeBalances(project) {
 
 function renderBalances(project) {
   const balances = computeBalances(project);
+  const canEdit = isOwner(project);
   els.balancesTableBody.innerHTML = "";
 
   (project.members || []).forEach((m) => {
@@ -296,9 +366,9 @@ function renderBalances(project) {
     const value = balances[m.id] || 0;
     balTd.textContent = value.toFixed(2);
     if (value > 0.01) {
-      balTd.style.color = "#4ade80";
+      balTd.style.color = "#16a34a";
     } else if (value < -0.01) {
-      balTd.style.color = "#f97373";
+      balTd.style.color = "#ef4444";
     } else {
       balTd.style.color = "#9ca3af";
     }
@@ -308,11 +378,14 @@ function renderBalances(project) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = !!(project.settled && project.settled[m.id]);
-    checkbox.addEventListener("change", async () => {
-      project.settled = project.settled || {};
-      project.settled[m.id] = checkbox.checked;
-      await saveProject(project, false);
-    });
+    checkbox.disabled = !canEdit;
+    if (canEdit) {
+      checkbox.addEventListener("change", async () => {
+        project.settled = project.settled || {};
+        project.settled[m.id] = checkbox.checked;
+        await saveProject(project, false);
+      });
+    }
     settledTd.appendChild(checkbox);
     tr.appendChild(settledTd);
 
@@ -444,12 +517,17 @@ async function onFetchRate() {
   }
 }
 
-// ---------- Add expense (uses Firestore) ----------
+// ---------- Add expense (Firestore) ----------
 
 async function onAddExpense(event) {
   event.preventDefault();
   const project = getCurrentProject();
   if (!project) return;
+
+  if (!isOwner(project)) {
+    alert("Only the project owner can add expenses.");
+    return;
+  }
 
   const description = els.expDescription.value.trim();
   const date = els.expDate.value;
@@ -525,6 +603,7 @@ async function onAddExpense(event) {
 
   await saveExpense(project.id, expense, true);
   const refreshedProject = getCurrentProject();
+  await loadExpensesForProject(refreshedProject.id);
   renderExpenses(refreshedProject);
   renderBalances(refreshedProject);
 
@@ -535,7 +614,12 @@ async function onAddExpense(event) {
 // ---------- deleteExpense with Firestore ----------
 
 async function deleteExpense(project, expenseId) {
+  if (!isOwner(project)) {
+    alert("Only the project owner can delete expenses.");
+    return;
+  }
   if (!confirm("Delete this expense?")) return;
+
   await deleteDoc(doc(expensesCol(project.id), expenseId));
 
   project.expenses = (project.expenses || []).filter((e) => e.id !== expenseId);
@@ -552,6 +636,7 @@ async function deleteExpense(project, expenseId) {
 
 function renderExpenses(project) {
   const expenses = project.expenses || [];
+  const canEdit = isOwner(project);
   els.expensesTableBody.innerHTML = "";
   if (!expenses.length) {
     const tr = document.createElement("tr");
@@ -629,18 +714,22 @@ function renderExpenses(project) {
     tr.appendChild(splitTd);
 
     const actionsTd = document.createElement("td");
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn secondary small";
-    delBtn.textContent = "Delete";
-    delBtn.addEventListener("click", () => deleteExpense(project, exp.id));
-    actionsTd.appendChild(delBtn);
+    if (canEdit) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn secondary small";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", () => deleteExpense(project, exp.id));
+      actionsTd.appendChild(delBtn);
+    } else {
+      actionsTd.textContent = "";
+    }
     tr.appendChild(actionsTd);
 
     els.expensesTableBody.appendChild(tr);
   });
 }
 
-// ---------- Project modal (create / edit) ----------
+// ---------- Project modal ----------
 
 function openProjectModal(projectId) {
   editingProjectId = projectId;
@@ -696,6 +785,10 @@ async function onProjectFormSubmit(event) {
       alert("Project not found.");
       return;
     }
+    if (!isOwner(project)) {
+      alert("Only the owner can edit this project.");
+      return;
+    }
     project.name = name;
     project.members = members;
     await saveProject(project, false);
@@ -716,7 +809,7 @@ async function onProjectFormSubmit(event) {
   closeProjectModal();
 }
 
-// ---------- Share link button ----------
+// ---------- Share link ----------
 
 function onShareProject() {
   const project = getCurrentProject();
@@ -745,13 +838,18 @@ function onShareProject() {
 // ---------- Init ----------
 
 function init() {
-  // yourName field
+  // yourName
   els.yourNameInput.value = yourName;
   els.yourNameInput.addEventListener("input", () => {
     yourName = els.yourNameInput.value.trim();
     localStorage.setItem("yourName", yourName);
-    renderCurrentProject();
+    const project = getCurrentProject();
+    if (project) renderCurrentProject();
   });
+
+  // Buttons
+  els.googleSignInBtn.addEventListener("click", signInWithGoogle);
+  els.signOutBtn.addEventListener("click", handleSignOut);
 
   els.addProjectBtn.addEventListener("click", () => openProjectModal(null));
   els.editProjectBtn.addEventListener("click", () => {
@@ -780,28 +878,20 @@ function init() {
     });
   });
 
-  // Auth + initial data load
+  // Auth + data
   onAuthStateChanged(auth, async (user) => {
     currentUser = user;
-    if (!user) {
-      const email = prompt("Enter your email to sign in or sign up:");
-      const password = prompt("Enter a password (new or existing):");
-      if (!email || !password) {
-        alert("Need email and password to continue.");
-        return;
-      }
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-      } catch (e) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      }
-      return; // will fire again when signed in
-    }
+    updateAuthUI();
 
-    // Signed in
-    await loadProjectsForUser(user.uid);
+    projectsCache = [];
+    currentProjectId = null;
 
     const urlProjectId = getProjectIdFromUrl();
+
+    if (user) {
+      await loadProjectsForUser(user.uid);
+    }
+
     if (urlProjectId) {
       const snap = await getDoc(projectDoc(urlProjectId));
       if (snap.exists()) {
