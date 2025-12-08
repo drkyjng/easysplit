@@ -663,6 +663,7 @@ select:focus {
 
   .app-main {
     padding: 8px 10px 14px;
+    overflow-x: hidden;
   }
 
   .card {
