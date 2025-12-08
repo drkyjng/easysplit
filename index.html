@@ -232,30 +232,50 @@
               </fieldset>
 
               <fieldset class="full-width">
-                <legend>Split mode</legend>
-                <div class="split-mode-row">
-                  <label class="radio-pill">
-                    <input type="radio" name="splitMode" value="equal" checked />
-                    <span>Equal split</span>
-                  </label>
-                  <label class="radio-pill">
-                    <input type="radio" name="splitMode" value="custom" />
-                    <span>Custom per person (HKD)</span>
-                  </label>
-                </div>
-                <div id="customSplitContainer" class="custom-split hidden">
-                  <table class="table small-table">
-                    <thead>
-                      <tr>
-                        <th>Member</th>
-                        <th>Share (HKD)</th>
-                      </tr>
-                    </thead>
-                    <tbody id="customSplitBody"></tbody>
-                  </table>
-                  <p class="small muted" id="customSplitSummary"></p>
-                </div>
-              </fieldset>
+  <legend>Split mode</legend>
+  <div class="split-mode-row">
+    <label class="radio-pill">
+      <input type="radio" name="splitMode" value="equal" checked />
+      <span>Equal split</span>
+    </label>
+    <label class="radio-pill">
+      <input type="radio" name="splitMode" value="percent" />
+      <span>By percentage (%)</span>
+    </label>
+    <label class="radio-pill">
+      <input type="radio" name="splitMode" value="custom" />
+      <span>Custom per person (HKD)</span>
+    </label>
+  </div>
+
+  <!-- % split -->
+  <div id="percentSplitContainer" class="custom-split hidden">
+    <table class="table small-table">
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Share (%)</th>
+        </tr>
+      </thead>
+      <tbody id="percentSplitBody"></tbody>
+    </table>
+    <p class="small muted" id="percentSplitSummary"></p>
+  </div>
+
+  <!-- HKD custom split -->
+  <div id="customSplitContainer" class="custom-split hidden">
+    <table class="table small-table">
+      <thead>
+        <tr>
+          <th>Member</th>
+          <th>Share (HKD)</th>
+        </tr>
+      </thead>
+      <tbody id="customSplitBody"></tbody>
+    </table>
+    <p class="small muted" id="customSplitSummary"></p>
+  </div>
+</fieldset>
 
               <div class="full-width form-actions">
                 <button type="submit" class="btn primary">Add expense</button>
