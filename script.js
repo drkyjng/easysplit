@@ -829,34 +829,6 @@ async function onAddExpense(event) {
   updateHKDTotalPreview();
 }
 
-  const expense = {
-    id: newId(),
-    description,
-    date,
-    payerId,
-    currency,
-    amountForeign,
-    rateSource,
-    rateRaw,
-    feePercent,
-    effectiveRate,
-    amountHKD,
-    participantIds,
-    splitMode,
-    shares: splitMode === "custom" ? shares : null,
-    createdAt: new Date().toISOString(),
-  };
-
-  await saveExpense(project.id, expense, true);
-  const refreshedProject = getCurrentProject();
-  await loadExpensesForProject(refreshedProject.id);
-  renderExpenses(refreshedProject);
-  renderBalances(refreshedProject);
-
-  els.expDescription.value = "";
-  els.expAmount.value = "";
-}
-
 // ---------- deleteExpense with Firestore ----------
 
 async function deleteExpense(project, expenseId) {
