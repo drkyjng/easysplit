@@ -1,4 +1,3 @@
-
 // ---------- Firebase wiring ----------
 
 const {
