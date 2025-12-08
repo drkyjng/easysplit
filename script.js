@@ -110,13 +110,18 @@ function expensesCol(projectId) {
 }
 
 async function loadProjectsForUser(uid) {
-  const q = query(
-    projectsCol(),
-    where("ownerUid", "==", uid),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  projectsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  try {
+    const q = query(
+      projectsCol(),
+      where("ownerUid", "==", uid),
+      orderBy("createdAt", "desc")
+    );
+    const snap = await getDocs(q);
+    projectsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.error("loadProjectsForUser failed:", e);
+    alert("Failed to load your projects: " + (e.message || e.code));
+  }
 }
 
 async function loadExpensesForProject(projectId) {
