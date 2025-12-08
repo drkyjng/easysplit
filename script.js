@@ -1,41 +1,50 @@
-const STORAGE_KEY = "hkdBillSplitterData_v2";
+// ---------- Firebase wiring ----------
 
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {
-        yourName: "",
-        projects: [],
-        currentProjectId: null,
-      };
-    }
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Failed to load state", e);
-    return {
-      yourName: "",
-      projects: [],
-      currentProjectId: null,
-    };
-  }
-}
+const {
+  app,
+  auth,
+  db,
+  firebaseAuth,
+  firebaseFirestore
+} = window._firebase;
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+const {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut
+} = firebaseAuth;
 
-function newId() {
-  return "id_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
+const {
+  collection,
+  doc,
+  addDoc,
+  setDoc,
+  getDoc,
+  getDocs,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  serverTimestamp
+} = firebaseFirestore;
 
-let state = loadState();
+// ---------- Minimal UI state (Firestore is the source of truth) ----------
+
+let currentUser = null;
+let projectsCache = [];      // [{ id, name, ownerUid, members, settled, createdAt, expenses? }]
+let currentProjectId = null;
+let yourName = localStorage.getItem("yourName") || "";
+
+// ---------- DOM refs ----------
 
 const els = {
   yourNameInput: document.getElementById("yourNameInput"),
   projectsList: document.getElementById("projectsList"),
   addProjectBtn: document.getElementById("addProjectBtn"),
   editProjectBtn: document.getElementById("editProjectBtn"),
+  shareProjectBtn: document.getElementById("shareProjectBtn"),
+
   projectView: document.getElementById("projectView"),
   noProjectMessage: document.getElementById("noProjectMessage"),
   projectName: document.getElementById("projectName"),
@@ -69,76 +78,134 @@ const els = {
 
 let editingProjectId = null;
 
-function init() {
-  els.yourNameInput.value = state.yourName || "";
-  els.yourNameInput.addEventListener("input", () => {
-    state.yourName = els.yourNameInput.value.trim();
-    saveState();
-    renderCurrentProject();
-  });
+// ---------- Utility ----------
 
-  els.addProjectBtn.addEventListener("click", () => openProjectModal(null));
-  els.editProjectBtn.addEventListener("click", () => {
-    if (!state.currentProjectId) return;
-    openProjectModal(state.currentProjectId);
-  });
-
-  els.cancelProjectBtn.addEventListener("click", closeProjectModal);
-  els.projectForm.addEventListener("submit", onProjectFormSubmit);
-
-  els.addExpenseForm.addEventListener("submit", onAddExpense);
-  els.fetchRateBtn.addEventListener("click", onFetchRate);
-
-  // split mode toggle
-  els.addExpenseForm.elements["splitMode"].forEach((r) => {
-    r.addEventListener("change", () => {
-      const mode = getSplitMode();
-      if (mode === "custom") {
-        els.customSplitContainer.classList.remove("hidden");
-        updateCustomSplitSummary();
-      } else {
-        els.customSplitContainer.classList.add("hidden");
-      }
-    });
-  });
-
-  renderProjectsList();
-  renderCurrentProject();
+function newId() {
+  return "id_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-document.addEventListener("DOMContentLoaded", init);
+function getProjectIdFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("project");
+}
+
+// ---------- Firestore helpers ----------
+
+function projectsCol() {
+  return collection(db, "projects");
+}
+
+function projectDoc(projectId) {
+  return doc(db, "projects", projectId);
+}
+
+function expensesCol(projectId) {
+  return collection(db, "projects", projectId, "expenses");
+}
+
+async function loadProjectsForUser(uid) {
+  const q = query(
+    projectsCol(),
+    where("ownerUid", "==", uid),
+    orderBy("createdAt", "desc")
+  );
+  const snap = await getDocs(q);
+  projectsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+async function loadExpensesForProject(projectId) {
+  const q = query(expensesCol(projectId), orderBy("createdAt", "desc"));
+  const snap = await getDocs(q);
+  const expenses = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const idx = projectsCache.findIndex((p) => p.id === projectId);
+  if (idx !== -1) {
+    projectsCache[idx].expenses = expenses;
+  }
+}
+
+async function saveProject(project, isNew) {
+  if (isNew) {
+    const docRef = await addDoc(projectsCol(), {
+      ...project,
+      createdAt: serverTimestamp()
+    });
+    project.id = docRef.id;
+    projectsCache.unshift(project);
+  } else {
+    const { id, ...data } = project;
+    await setDoc(projectDoc(id), data, { merge: true });
+    const idx = projectsCache.findIndex((p) => p.id === id);
+    if (idx !== -1) projectsCache[idx] = project;
+  }
+}
+
+async function saveExpense(projectId, expense, isNew) {
+  if (isNew) {
+    const ref = await addDoc(expensesCol(projectId), {
+      ...expense,
+      createdAt: serverTimestamp()
+    });
+    expense.id = ref.id;
+  } else {
+    const { id, ...data } = expense;
+    await setDoc(doc(expensesCol(projectId), id), data, { merge: true });
+  }
+
+  const idx = projectsCache.findIndex((p) => p.id === projectId);
+  if (idx !== -1) {
+    projectsCache[idx].expenses = projectsCache[idx].expenses || [];
+    const eIdx = projectsCache[idx].expenses.findIndex((e) => e.id === expense.id);
+    if (eIdx === -1) {
+      projectsCache[idx].expenses.unshift(expense);
+    } else {
+      projectsCache[idx].expenses[eIdx] = expense;
+    }
+  }
+}
+
+// ---------- State helpers ----------
 
 function getCurrentProject() {
-  return state.projects.find((p) => p.id === state.currentProjectId) || null;
+  return projectsCache.find((p) => p.id === currentProjectId) || null;
 }
 
+function isMe(member) {
+  if (!yourName) return false;
+  return member.name.trim().toLowerCase() === yourName.trim().toLowerCase();
+}
+
+// ---------- Rendering: projects ----------
+
 function renderProjectsList() {
-  els.projectsList.innerHTML = "";
-  if (!state.projects.length) {
+  const list = els.projectsList;
+  list.innerHTML = "";
+
+  if (!projectsCache.length) {
     const li = document.createElement("li");
     li.textContent = "No projects yet";
     li.className = "muted small";
-    els.projectsList.appendChild(li);
+    list.appendChild(li);
     return;
   }
 
-  state.projects.forEach((p) => {
+  projectsCache.forEach((p) => {
     const li = document.createElement("li");
-    li.className = "project-item" + (p.id === state.currentProjectId ? " active" : "");
-    li.addEventListener("click", () => {
-      state.currentProjectId = p.id;
-      saveState();
+    li.className = "project-item" + (p.id === currentProjectId ? " active" : "");
+    li.addEventListener("click", async () => {
+      currentProjectId = p.id;
+      await loadExpensesForProject(p.id);
       renderProjectsList();
       renderCurrentProject();
     });
-
     const nameSpan = document.createElement("span");
     nameSpan.textContent = p.name;
     li.appendChild(nameSpan);
-
-    els.projectsList.appendChild(li);
+    list.appendChild(li);
   });
 }
+
+// ---------- Rendering: current project ----------
 
 function renderCurrentProject() {
   const project = getCurrentProject();
@@ -153,9 +220,17 @@ function renderCurrentProject() {
   els.projectView.style.display = "block";
 
   els.projectName.textContent = project.name;
-  els.projectMeta.textContent = `${project.members.length} member(s) • Created ${new Date(
-    project.createdAt
-  ).toLocaleDateString()}`;
+
+  let createdAtDate = null;
+  if (project.createdAt && typeof project.createdAt.toDate === "function") {
+    createdAtDate = project.createdAt.toDate();
+  } else if (project.createdAt) {
+    createdAtDate = new Date(project.createdAt);
+  } else {
+    createdAtDate = new Date();
+  }
+
+  els.projectMeta.textContent = `${(project.members || []).length} member(s) • Created ${createdAtDate.toLocaleDateString()}`;
 
   renderMembers(project);
   renderExpenseFormMembers(project);
@@ -165,7 +240,7 @@ function renderCurrentProject() {
 
 function renderMembers(project) {
   els.membersList.innerHTML = "";
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     const li = document.createElement("li");
     li.className = "pill" + (isMe(m) ? " me" : "");
     li.textContent = m.name + (isMe(m) ? " (you)" : "");
@@ -173,26 +248,22 @@ function renderMembers(project) {
   });
 }
 
-function isMe(member) {
-  if (!state.yourName) return false;
-  return member.name.toLowerCase() === state.yourName.trim().toLowerCase();
-}
+// ---------- Balances ----------
 
 function computeBalances(project) {
   const balances = {};
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     balances[m.id] = 0;
   });
 
-  project.expenses.forEach((exp) => {
+  (project.expenses || []).forEach((exp) => {
     const participants = exp.participantIds || [];
     if (!participants.length) return;
 
     if (exp.splitMode === "custom" && exp.shares) {
-      // shares: { memberId: hkAmount }
       Object.entries(exp.shares).forEach(([memberId, share]) => {
         const s = Number(share) || 0;
-        if (!project.members.find((m) => m.id === memberId)) return;
+        if (!(project.members || []).find((m) => m.id === memberId)) return;
         if (memberId === exp.payerId) return;
         balances[memberId] += s;
         balances[exp.payerId] -= s;
@@ -214,7 +285,7 @@ function renderBalances(project) {
   const balances = computeBalances(project);
   els.balancesTableBody.innerHTML = "";
 
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     const tr = document.createElement("tr");
 
     const nameTd = document.createElement("td");
@@ -237,10 +308,10 @@ function renderBalances(project) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = !!(project.settled && project.settled[m.id]);
-    checkbox.addEventListener("change", () => {
+    checkbox.addEventListener("change", async () => {
       project.settled = project.settled || {};
       project.settled[m.id] = checkbox.checked;
-      saveState();
+      await saveProject(project, false);
     });
     settledTd.appendChild(checkbox);
     tr.appendChild(settledTd);
@@ -249,19 +320,21 @@ function renderBalances(project) {
   });
 }
 
+// ---------- Expense form & splits ----------
+
 function renderExpenseFormMembers(project) {
   // payer select
   els.expPayer.innerHTML = "";
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     const opt = document.createElement("option");
     opt.value = m.id;
     opt.textContent = m.name + (isMe(m) ? " (you)" : "");
     els.expPayer.appendChild(opt);
   });
 
-  // participants check list
+  // participants
   els.expParticipants.innerHTML = "";
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     const label = document.createElement("label");
 
     const checkbox = document.createElement("input");
@@ -282,7 +355,7 @@ function renderExpenseFormMembers(project) {
 
 function buildCustomSplitRows(project) {
   els.customSplitBody.innerHTML = "";
-  project.members.forEach((m) => {
+  (project.members || []).forEach((m) => {
     const tr = document.createElement("tr");
 
     const nameTd = document.createElement("td");
@@ -312,22 +385,19 @@ function getParticipants() {
 }
 
 function getSplitMode() {
-  const checked = Array.from(els.addExpenseForm.elements["splitMode"]).find(
-    (r) => r.checked
-  );
+  const radios = els.addExpenseForm.elements["splitMode"];
+  const checked = Array.from(radios).find((r) => r.checked);
   return checked ? checked.value : "equal";
 }
 
 function updateCustomSplitSummary() {
-  const inputs = Array.from(els.customSplitBody.querySelectorAll("input[type=number]"));
-  const shares = {};
+  const inputs = Array.from(
+    els.customSplitBody.querySelectorAll("input[type=number]")
+  );
   let sum = 0;
   inputs.forEach((inp) => {
     const v = parseFloat(inp.value || "0");
-    if (v > 0) {
-      shares[inp.dataset.memberId] = v;
-      sum += v;
-    }
+    if (v > 0) sum += v;
   });
   if (sum > 0) {
     els.customSplitSummary.textContent = `Total custom shares: ${sum.toFixed(
@@ -337,6 +407,8 @@ function updateCustomSplitSummary() {
     els.customSplitSummary.textContent = "No custom shares entered yet.";
   }
 }
+
+// ---------- FX rate fetch ----------
 
 async function onFetchRate() {
   const currency = els.expCurrency.value.trim().toUpperCase();
@@ -372,7 +444,9 @@ async function onFetchRate() {
   }
 }
 
-function onAddExpense(event) {
+// ---------- Add expense (uses Firestore) ----------
+
+async function onAddExpense(event) {
   event.preventDefault();
   const project = getCurrentProject();
   if (!project) return;
@@ -422,22 +496,18 @@ function onAddExpense(event) {
     }
     const diff = Math.abs(sumShares - amountHKD);
     if (diff > 0.5) {
-      if (
-        !confirm(
-          `Warning: total custom shares (${sumShares.toFixed(
-            2
-          )} HKD) differ from HKD total (${amountHKD.toFixed(
-            2
-          )} HKD) by ${diff.toFixed(2)}. Save anyway?`
-        )
-      ) {
-        return;
-      }
+      const ok = confirm(
+        `Warning: total custom shares (${sumShares.toFixed(
+          2
+        )} HKD) differ from HKD total (${amountHKD.toFixed(
+          2
+        )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+      );
+      if (!ok) return;
     }
   }
 
   const expense = {
-    id: newId(),
     description,
     date,
     payerId,
@@ -450,32 +520,40 @@ function onAddExpense(event) {
     amountHKD,
     participantIds,
     splitMode,
-    shares: splitMode === "custom" ? shares : null,
-    createdAt: new Date().toISOString(),
+    shares: splitMode === "custom" ? shares : null
   };
 
-  project.expenses.unshift(expense);
-  saveState();
+  await saveExpense(project.id, expense, true);
+  const refreshedProject = getCurrentProject();
+  renderExpenses(refreshedProject);
+  renderBalances(refreshedProject);
 
   els.expDescription.value = "";
   els.expAmount.value = "";
-  // keep date / currency / rates to ease repeated input
-
-  renderExpenses(project);
-  renderBalances(project);
 }
 
-function deleteExpense(project, expenseId) {
+// ---------- deleteExpense with Firestore ----------
+
+async function deleteExpense(project, expenseId) {
   if (!confirm("Delete this expense?")) return;
-  project.expenses = project.expenses.filter((e) => e.id !== expenseId);
-  saveState();
+  await deleteDoc(doc(expensesCol(project.id), expenseId));
+
+  project.expenses = (project.expenses || []).filter((e) => e.id !== expenseId);
+  const idx = projectsCache.findIndex((p) => p.id === project.id);
+  if (idx !== -1) {
+    projectsCache[idx].expenses = project.expenses;
+  }
+
   renderExpenses(project);
   renderBalances(project);
 }
+
+// ---------- Render expenses table ----------
 
 function renderExpenses(project) {
+  const expenses = project.expenses || [];
   els.expensesTableBody.innerHTML = "";
-  if (!project.expenses.length) {
+  if (!expenses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 10;
@@ -486,7 +564,7 @@ function renderExpenses(project) {
     return;
   }
 
-  project.expenses.forEach((exp) => {
+  expenses.forEach((exp) => {
     const tr = document.createElement("tr");
 
     const dateTd = document.createElement("td");
@@ -497,7 +575,7 @@ function renderExpenses(project) {
     descTd.textContent = exp.description;
     tr.appendChild(descTd);
 
-    const payer = project.members.find((m) => m.id === exp.payerId);
+    const payer = (project.members || []).find((m) => m.id === exp.payerId);
     const payerTd = document.createElement("td");
     payerTd.textContent = payer ? payer.name : "Unknown";
     tr.appendChild(payerTd);
@@ -528,8 +606,8 @@ function renderExpenses(project) {
     tr.appendChild(hkdTd);
 
     const participantsTd = document.createElement("td");
-    const names = exp.participantIds
-      .map((id) => project.members.find((m) => m.id === id))
+    const names = (exp.participantIds || [])
+      .map((id) => (project.members || []).find((m) => m.id === id))
       .filter(Boolean)
       .map((m) => m.name);
     participantsTd.textContent = names.join(", ");
@@ -539,13 +617,13 @@ function renderExpenses(project) {
     if (exp.splitMode === "custom" && exp.shares) {
       const parts = Object.entries(exp.shares)
         .map(([id, share]) => {
-          const m = project.members.find((mm) => mm.id === id);
+          const m = (project.members || []).find((mm) => mm.id === id);
           return m ? `${m.name}: ${Number(share).toFixed(2)}` : null;
         })
         .filter(Boolean);
       splitTd.textContent = parts.join(" | ");
     } else {
-      const perPerson = exp.amountHKD / (exp.participantIds.length || 1);
+      const perPerson = exp.amountHKD / ((exp.participantIds || []).length || 1);
       splitTd.textContent = `Equal: ${perPerson.toFixed(2)} each`;
     }
     tr.appendChild(splitTd);
@@ -562,19 +640,23 @@ function renderExpenses(project) {
   });
 }
 
+// ---------- Project modal (create / edit) ----------
+
 function openProjectModal(projectId) {
   editingProjectId = projectId;
   const isEdit = !!projectId;
   els.projectModalTitle.textContent = isEdit ? "Edit project" : "New project";
 
   if (isEdit) {
-    const project = state.projects.find((p) => p.id === projectId);
+    const project = projectsCache.find((p) => p.id === projectId);
     if (!project) return;
     els.projectNameInput.value = project.name;
-    els.projectMembersInput.value = project.members.map((m) => m.name).join(", ");
+    els.projectMembersInput.value = (project.members || [])
+      .map((m) => m.name)
+      .join(", ");
   } else {
     els.projectNameInput.value = "";
-    els.projectMembersInput.value = state.yourName ? state.yourName : "";
+    els.projectMembersInput.value = yourName ? yourName : "";
   }
 
   els.projectModal.classList.remove("hidden");
@@ -585,8 +667,13 @@ function closeProjectModal() {
   editingProjectId = null;
 }
 
-function onProjectFormSubmit(event) {
+async function onProjectFormSubmit(event) {
   event.preventDefault();
+  if (!currentUser) {
+    alert("You must be signed in to save projects.");
+    return;
+  }
+
   const name = els.projectNameInput.value.trim();
   const membersRaw = els.projectMembersInput.value
     .split(",")
@@ -600,39 +687,145 @@ function onProjectFormSubmit(event) {
 
   const members = membersRaw.map((n) => ({
     id: newId(),
-    name: n,
+    name: n
   }));
 
   if (editingProjectId) {
-    const project = state.projects.find((p) => p.id === editingProjectId);
-    if (!project) return;
-    const keepExpenses = project.expenses || [];
-    if (
-      keepExpenses.length &&
-      !confirm(
-        "Editing members may make existing expenses inconsistent. Keep old expenses anyway?"
-      )
-    ) {
-      project.expenses = [];
-      project.settled = {};
+    const project = projectsCache.find((p) => p.id === editingProjectId);
+    if (!project) {
+      alert("Project not found.");
+      return;
     }
     project.name = name;
     project.members = members;
+    await saveProject(project, false);
   } else {
     const newProject = {
-      id: newId(),
       name,
-      createdAt: new Date().toISOString(),
+      ownerUid: currentUser.uid,
       members,
-      expenses: [],
-      settled: {},
+      settled: {}
     };
-    state.projects.unshift(newProject);
-    state.currentProjectId = newProject.id;
+    await saveProject(newProject, true);
+    currentProjectId = newProject.id;
+    await loadExpensesForProject(newProject.id);
   }
 
-  saveState();
   renderProjectsList();
   renderCurrentProject();
   closeProjectModal();
 }
+
+// ---------- Share link button ----------
+
+function onShareProject() {
+  const project = getCurrentProject();
+  if (!project) {
+    alert("No project selected.");
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("project", project.id);
+  const shareUrl = url.toString();
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => {
+        alert("Share link copied to clipboard:\n" + shareUrl);
+      })
+      .catch(() => {
+        alert("Share link:\n" + shareUrl);
+      });
+  } else {
+    alert("Share link:\n" + shareUrl);
+  }
+}
+
+// ---------- Init ----------
+
+function init() {
+  // yourName field
+  els.yourNameInput.value = yourName;
+  els.yourNameInput.addEventListener("input", () => {
+    yourName = els.yourNameInput.value.trim();
+    localStorage.setItem("yourName", yourName);
+    renderCurrentProject();
+  });
+
+  els.addProjectBtn.addEventListener("click", () => openProjectModal(null));
+  els.editProjectBtn.addEventListener("click", () => {
+    const project = getCurrentProject();
+    if (!project) return;
+    openProjectModal(project.id);
+  });
+  els.shareProjectBtn.addEventListener("click", onShareProject);
+
+  els.cancelProjectBtn.addEventListener("click", closeProjectModal);
+  els.projectForm.addEventListener("submit", onProjectFormSubmit);
+
+  els.addExpenseForm.addEventListener("submit", onAddExpense);
+  els.fetchRateBtn.addEventListener("click", onFetchRate);
+
+  // split mode toggle
+  Array.from(els.addExpenseForm.elements["splitMode"]).forEach((r) => {
+    r.addEventListener("change", () => {
+      const mode = getSplitMode();
+      if (mode === "custom") {
+        els.customSplitContainer.classList.remove("hidden");
+        updateCustomSplitSummary();
+      } else {
+        els.customSplitContainer.classList.add("hidden");
+      }
+    });
+  });
+
+  // Auth + initial data load
+  onAuthStateChanged(auth, async (user) => {
+    currentUser = user;
+    if (!user) {
+      const email = prompt("Enter your email to sign in or sign up:");
+      const password = prompt("Enter a password (new or existing):");
+      if (!email || !password) {
+        alert("Need email and password to continue.");
+        return;
+      }
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (e) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
+      return; // will fire again when signed in
+    }
+
+    // Signed in
+    await loadProjectsForUser(user.uid);
+
+    const urlProjectId = getProjectIdFromUrl();
+    if (urlProjectId) {
+      const snap = await getDoc(projectDoc(urlProjectId));
+      if (snap.exists()) {
+        const data = snap.data();
+        const sharedProject = { id: snap.id, ...data };
+        const idx = projectsCache.findIndex((p) => p.id === sharedProject.id);
+        if (idx === -1) {
+          projectsCache.unshift(sharedProject);
+        } else {
+          projectsCache[idx] = sharedProject;
+        }
+        currentProjectId = sharedProject.id;
+        await loadExpensesForProject(sharedProject.id);
+      }
+    }
+
+    if (!currentProjectId && projectsCache.length) {
+      currentProjectId = projectsCache[0].id;
+      await loadExpensesForProject(currentProjectId);
+    }
+
+    renderProjectsList();
+    renderCurrentProject();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", init);
