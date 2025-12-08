@@ -5,56 +5,19 @@
   <title>HKD Bill Splitter</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
+
   <!-- Firebase SDK v9 (modular) via CDN -->
-<script type="module">
-  // Import the pieces we need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-  import {
-    getAuth,
-    onAuthStateChanged,
-    signInWithEmailAndPassword,
-    createUserWithEmailAndPassword,
-    signOut
-  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-  import {
-    getFirestore,
-    collection,
-    doc,
-    addDoc,
-    setDoc,
-    getDoc,
-    getDocs,
-    deleteDoc,
-    query,
-    where,
-    orderBy,
-    serverTimestamp
-  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-
-  // TODO: replace this config with YOUR Firebase web config from Project Settings
-const firebaseConfig = {
-  apiKey: "AIzaSyBdeYG1lO3z7I1Vqk3OOmrBkjOdkrZFvGU",
-  authDomain: "easysplit-8d59d.firebaseapp.com",
-  projectId: "easysplit-8d59d",
-  storageBucket: "easysplit-8d59d.firebasestorage.app",
-  messagingSenderId: "632617460750",
-  appId: "1:632617460750:web:8b87c9c5971d9321cb085f"
-};
-
-  // Initialize Firebase app
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-
-  // Expose to window so script.js can use it
-  window._firebase = { app, auth, db, 
-    firebaseAuth: {
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import {
+      getAuth,
       onAuthStateChanged,
-      signInWithEmailAndPassword,
-      createUserWithEmailAndPassword,
+      GoogleAuthProvider,
+      signInWithPopup,
       signOut
-    },
-    firebaseFirestore: {
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+    import {
+      getFirestore,
       collection,
       doc,
       addDoc,
@@ -66,22 +29,66 @@ const firebaseConfig = {
       where,
       orderBy,
       serverTimestamp
-    }
-  };
-</script>
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-<!-- Your existing script -->
-<script src="script.js" defer></script>
+    // Your Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyBdeYG1lO3z7I1Vqk3OOmrBkjOdkrZFvGU",
+      authDomain: "easysplit-8d59d.firebaseapp.com",
+      projectId: "easysplit-8d59d",
+      storageBucket: "easysplit-8d59d.firebasestorage.app",
+      messagingSenderId: "632617460750",
+      appId: "1:632617460750:web:8b87c9c5971d9321cb085f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Expose to script.js
+    window._firebase = {
+      app,
+      auth,
+      db,
+      firebaseAuth: {
+        onAuthStateChanged,
+        GoogleAuthProvider,
+        signInWithPopup,
+        signOut
+      },
+      firebaseFirestore: {
+        collection,
+        doc,
+        addDoc,
+        setDoc,
+        getDoc,
+        getDocs,
+        deleteDoc,
+        query,
+        where,
+        orderBy,
+        serverTimestamp
+      }
+    };
+  </script>
+
+  <script src="script.js" defer></script>
 </head>
 <body>
   <div class="app">
-    <header class="app-header glass">
+    <header class="app-header">
       <div class="app-title">
-        <h1>HKD Bill Splitter</h1>
-        <p>Multi-currency projects with HKD conversion and custom splits</p>
+        <h1>EasySplit HKD</h1>
+        <p>Split multi-currency bills into HKD with custom shares</p>
       </div>
+
       <div class="user-settings">
-        <label>
+        <div class="auth-controls">
+          <span id="userStatus" class="muted small">Not signed in</span>
+          <button id="googleSignInBtn" class="btn primary-outline small">Sign in with Google</button>
+          <button id="signOutBtn" class="btn ghost small" style="display:none;">Sign out</button>
+        </div>
+        <label class="your-name-label">
           Your name
           <input type="text" id="yourNameInput" placeholder="e.g. Justin" />
         </label>
@@ -90,7 +97,7 @@ const firebaseConfig = {
 
     <main class="app-main">
       <!-- Sidebar: projects -->
-      <aside class="sidebar glass">
+      <aside class="sidebar">
         <div class="sidebar-header">
           <h2>Projects</h2>
           <button id="addProjectBtn" class="btn primary small">+ New</button>
@@ -98,34 +105,41 @@ const firebaseConfig = {
         <ul id="projectsList" class="project-list"></ul>
       </aside>
 
-      <!-- Main content: current project -->
+      <!-- Main content -->
       <section class="content">
-        <div id="noProjectMessage" class="card glass" style="display:none;">
-          <h2>No projects yet</h2>
-          <p>Create a project for each trip / event where you split bills.</p>
+        <div id="noProjectMessage" class="card hero" style="display:none;">
+          <h2>Welcome to EasySplit</h2>
+          <p class="muted">
+            Sign in with Google to create your own projects, or open a shared link to view a project in read-only mode.
+          </p>
         </div>
 
         <div id="projectView" style="display:none;">
-<div class="project-header card glass">
-  <div>
-    <h2 id="projectName"></h2>
-    <p id="projectMeta" class="muted small"></p>
-  </div>
-  <div style="display:flex; gap:8px;">
-    <button id="shareProjectBtn" class="btn secondary small">Share link</button>
-    <button id="editProjectBtn" class="btn secondary small">Edit project</button>
-  </div>
-</div>
+          <div class="project-header card">
+            <div>
+              <h2 id="projectName"></h2>
+              <p id="projectMeta" class="muted small"></p>
+            </div>
+            <div class="project-header-actions">
+              <button id="shareProjectBtn" class="btn secondary small">Share link</button>
+              <button id="editProjectBtn" class="btn primary-outline small">Edit project</button>
+            </div>
+          </div>
 
           <!-- Members and balances -->
           <div class="grid-2">
-            <div class="card glass">
+            <div class="card">
               <h3>Members</h3>
               <ul id="membersList" class="pill-list"></ul>
             </div>
-            <div class="card glass">
-              <h3>Balances (HKD)</h3>
-              <p class="muted small">Positive: they owe this amount. Negative: you owe them.</p>
+            <div class="card">
+              <div class="card-header-row">
+                <h3>Balances (HKD)</h3>
+                <span class="badge" id="editModeBadge">Owner mode</span>
+              </div>
+              <p class="muted small">
+                Positive: they owe this amount. Negative: you owe them.
+              </p>
               <table class="table" id="balancesTable">
                 <thead>
                   <tr>
@@ -140,7 +154,7 @@ const firebaseConfig = {
           </div>
 
           <!-- Add expense -->
-          <div class="card glass">
+          <div class="card" id="addExpenseCard">
             <h3>Add expense</h3>
             <form id="addExpenseForm" class="form-grid">
               <label>
@@ -230,7 +244,7 @@ const firebaseConfig = {
           </div>
 
           <!-- Expenses list -->
-          <div class="card glass">
+          <div class="card">
             <h3>Expenses</h3>
             <table class="table" id="expensesTable">
               <thead>
@@ -258,7 +272,7 @@ const firebaseConfig = {
   <!-- Project modal -->
   <div id="projectModal" class="modal hidden">
     <div class="modal-backdrop"></div>
-    <div class="modal-dialog glass">
+    <div class="modal-dialog">
       <h2 id="projectModalTitle">New project</h2>
       <form id="projectForm" class="form-grid">
         <label>
@@ -279,6 +293,5 @@ const firebaseConfig = {
       </form>
     </div>
   </div>
-
 </body>
 </html>
