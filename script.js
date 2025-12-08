@@ -29,6 +29,12 @@ const {
   serverTimestamp
 } = firebaseFirestore;
 
+function tsToDateMaybe(value) {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate(); // Firestore Timestamp
+  return new Date(value); // string / ISO / millis
+}
+
 // ---------- Minimal UI state ----------
 
 let currentUser = null;
@@ -138,33 +144,56 @@ async function loadExpensesForProject(projectId) {
 }
 
 async function saveProject(project, isNew) {
+  const updateMeta = buildProjectUpdateMeta();
+
   if (isNew) {
-    const docRef = await addDoc(projectsCol(), {
+    const payload = {
       ...project,
-      createdAt: serverTimestamp()
-    });
+      createdAt: serverTimestamp(),
+      ...updateMeta
+    };
+    const docRef = await addDoc(projectsCol(), payload);
     project.id = docRef.id;
+    Object.assign(project, payload);
     projectsCache.unshift(project);
   } else {
     const { id, ...data } = project;
-    await setDoc(projectDoc(id), data, { merge: true });
+    const payload = {
+      ...data,
+      ...updateMeta
+    };
+    await setDoc(projectDoc(id), payload, { merge: true });
+
     const idx = projectsCache.findIndex((p) => p.id === id);
-    if (idx !== -1) projectsCache[idx] = project;
+    if (idx !== -1) {
+      projectsCache[idx] = { id, ...payload };
+    }
   }
 }
 
 async function saveExpense(projectId, expense, isNew) {
+  const expenseMeta = buildExpenseUpdateMeta();
+
   if (isNew) {
-    const ref = await addDoc(expensesCol(projectId), {
+    const payload = {
       ...expense,
-      createdAt: serverTimestamp()
-    });
+      createdAt: serverTimestamp(),
+      ...expenseMeta
+    };
+    const ref = await addDoc(expensesCol(projectId), payload);
     expense.id = ref.id;
+    Object.assign(expense, payload);
   } else {
     const { id, ...data } = expense;
-    await setDoc(doc(expensesCol(projectId), id), data, { merge: true });
+    const payload = {
+      ...data,
+      ...expenseMeta
+    };
+    await setDoc(doc(expensesCol(projectId), id), payload, { merge: true });
+    Object.assign(expense, payload);
   }
 
+  // Update local cache
   const idx = projectsCache.findIndex((p) => p.id === projectId);
   if (idx !== -1) {
     projectsCache[idx].expenses = projectsCache[idx].expenses || [];
@@ -175,6 +204,53 @@ async function saveExpense(projectId, expense, isNew) {
       projectsCache[idx].expenses[eIdx] = expense;
     }
   }
+
+  // Also bump project "last updated" info in Firestore
+  const updateMeta = buildProjectUpdateMeta();
+  await setDoc(projectDoc(projectId), updateMeta, { merge: true });
+
+  // Mirror in local cache if we have it
+  if (idx !== -1) {
+    Object.assign(projectsCache[idx], updateMeta);
+  }
+}
+
+function buildProjectUpdateMeta() {
+  if (!currentUser) return {};
+  const email = currentUser.email || "";
+  const displayName = currentUser.displayName || "";
+  const localName = yourName || "";
+
+  const name =
+    localName ||
+    displayName ||
+    (email ? email.split("@")[0] : "Unknown");
+
+  return {
+    lastUpdatedAt: serverTimestamp(),
+    lastUpdatedByUid: currentUser.uid,
+    lastUpdatedByName: name,
+    lastUpdatedByEmail: email || null
+  };
+}
+
+function buildExpenseUpdateMeta() {
+  if (!currentUser) return {};
+  const email = currentUser.email || "";
+  const displayName = currentUser.displayName || "";
+  const localName = yourName || "";
+
+  const name =
+    localName ||
+    displayName ||
+    (email ? email.split("@")[0] : "Unknown");
+
+  return {
+    lastUpdatedAt: serverTimestamp(),
+    lastUpdatedByUid: currentUser.uid,
+    lastUpdatedByName: name,
+    lastUpdatedByEmail: email || null
+  };
 }
 
 // ---------- State helpers ----------
@@ -291,17 +367,21 @@ function renderCurrentProject() {
 
   els.projectName.textContent = project.name;
 
-  let createdAtDate = null;
-  if (project.createdAt && typeof project.createdAt.toDate === "function") {
-    createdAtDate = project.createdAt.toDate();
-  } else if (project.createdAt) {
-    createdAtDate = new Date(project.createdAt);
-  } else {
-    createdAtDate = new Date();
-  }
+const created = tsToDateMaybe(project.createdAt);
+const updated = tsToDateMaybe(project.lastUpdatedAt);
 
-  const memberCount = (project.members || []).length;
-  els.projectMeta.textContent = `${memberCount} member(s) • Created ${createdAtDate.toLocaleDateString()}`;
+let meta = `${(project.members || []).length} member(s)`;
+
+if (created) {
+  meta += ` • Created ${created.toLocaleDateString()}`;
+}
+
+if (updated) {
+  const who = project.lastUpdatedByName || "someone";
+  meta += ` • Last updated ${updated.toLocaleString()} by ${who}`;
+}
+
+els.projectMeta.textContent = meta;
 
     const owner = isOwner(project);
   const canEdit = canEditProject(project);
