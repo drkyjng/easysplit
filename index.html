@@ -104,13 +104,16 @@ const firebaseConfig = {
         </div>
 
         <div id="projectView" style="display:none;">
-          <div class="project-header card glass">
-            <div>
-              <h2 id="projectName"></h2>
-              <p id="projectMeta" class="muted small"></p>
-            </div>
-            <button id="editProjectBtn" class="btn secondary small">Edit project</button>
-          </div>
+<div class="project-header card glass">
+  <div>
+    <h2 id="projectName"></h2>
+    <p id="projectMeta" class="muted small"></p>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <button id="shareProjectBtn" class="btn secondary small">Share link</button>
+    <button id="editProjectBtn" class="btn secondary small">Edit project</button>
+  </div>
+</div>
 
           <!-- Members and balances -->
           <div class="grid-2">
