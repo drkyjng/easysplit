@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>HKD Bill Splitter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="app-title">
+        <h1>HKD Bill Splitter</h1>
+        <p>Multi-currency projects with HKD conversion</p>
+      </div>
+      <div class="user-settings">
+        <label>
+          Your name:
+          <input type="text" id="yourNameInput" placeholder="e.g. Justin" />
+        </label>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Sidebar: projects -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h2>Projects</h2>
+          <button id="addProjectBtn" class="btn primary small">+ New</button>
+        </div>
+        <ul id="projectsList" class="project-list"></ul>
+      </aside>
+
+      <!-- Main content: current project -->
+      <section class="content">
+        <div id="noProjectMessage" class="card" style="display:none;">
+          <h2>No projects yet</h2>
+          <p>Create a project for each trip / event where you split bills.</p>
+        </div>
+
+        <div id="projectView" style="display:none;">
+          <div class="project-header card">
+            <div>
+              <h2 id="projectName"></h2>
+              <p id="projectMeta" class="muted"></p>
+            </div>
+            <button id="editProjectBtn" class="btn secondary small">Edit project</button>
+          </div>
+
+          <!-- Members and balances -->
+          <div class="grid-2">
+            <div class="card">
+              <h3>Members</h3>
+              <ul id="membersList" class="pill-list"></ul>
+            </div>
+            <div class="card">
+              <h3>Balances (HKD)</h3>
+              <p class="muted small">Positive: they owe this amount. Negative: you owe them.</p>
+              <table class="table" id="balancesTable">
+                <thead>
+                  <tr>
+                    <th>Member</th>
+                    <th>Net balance (HKD)</th>
+                    <th>Settled?</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Add expense -->
+          <div class="card">
+            <h3>Add expense</h3>
+            <form id="addExpenseForm" class="form-grid">
+              <label>
+                Description
+                <input type="text" id="expDescription" required placeholder="Dinner, Taxi, Theme park tickets..." />
+              </label>
+              <label>
+                Date
+                <input type="date" id="expDate" required />
+              </label>
+              <label>
+                Payer
+                <select id="expPayer" required></select>
+              </label>
+              <label>
+                Currency
+                <input type="text" id="expCurrency" required placeholder="e.g. JPY, USD, EUR" />
+              </label>
+              <label>
+                Amount (foreign)
+                <input type="number" id="expAmount" required min="0" step="0.01" />
+              </label>
+              <label>
+                Rate source
+                <select id="expRateSource">
+                  <option value="official">Official rate (ECB api)</option>
+                  <option value="visa">Visa rate (manual)</option>
+                  <option value="mastercard">Mastercard rate (manual)</option>
+                  <option value="custom">Custom rate</option>
+                </select>
+              </label>
+              <label>
+                FX rate → HKD
+                <div class="inline-input">
+                  <input type="number" id="expRate" min="0" step="0.0001" placeholder="e.g. 0.056" />
+                  <button type="button" id="fetchRateBtn" class="btn secondary small">Fetch official</button>
+                </div>
+                <span class="help small">
+                  Official: uses Frankfurter (ECB). For Visa / Mastercard, check their calculators and type the rate:
+                  <a href="https://www.visa.com.hk/travel-with-visa/exchange-rate-calculator.html" target="_blank">Visa</a>,
+                  <a href="https://www.mastercard.com/global/currencyconversion/" target="_blank">Mastercard</a>.
+                </span>
+              </label>
+
+              <fieldset class="full-width">
+                <legend>Who shares this expense?</legend>
+                <div id="expParticipants" class="pill-list check-list"></div>
+                <p class="small muted">The amount (in HKD) will be split equally among selected members.</p>
+              </fieldset>
+
+              <div class="full-width form-actions">
+                <button type="submit" class="btn primary">Add expense</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Expenses list -->
+          <div class="card">
+            <h3>Expenses</h3>
+            <table class="table" id="expensesTable">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Payer</th>
+                  <th>Foreign</th>
+                  <th>Rate source</th>
+                  <th>HKD total</th>
+                  <th>Per person</th>
+                  <th>Participants</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Project modal -->
+  <div id="projectModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+      <h2 id="projectModalTitle">New project</h2>
+      <form id="projectForm" class="form-grid">
+        <label>
+          Project name
+          <input type="text" id="projectNameInput" required placeholder="e.g. Osaka Trip 2025" />
+        </label>
+        <label class="full-width">
+          Members (comma-separated)
+          <input type="text" id="projectMembersInput" required placeholder="e.g. You, Alice, Bob" />
+          <span class="small muted">
+            Include yourself (matching the “Your name” field) so splits work correctly.
+          </span>
+        </label>
+        <div class="full-width form-actions">
+          <button type="button" id="cancelProjectBtn" class="btn secondary">Cancel</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="script.js" defer></script>
+</body>
+</html>
