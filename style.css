@@ -671,10 +671,15 @@ select:focus {
 
   .sidebar {
     order: 1;
+    margin-bottom: 12px;
   }
 
   .content {
     order: 2;
+  }
+
+  .sidebar .card-title {
+    font-size: 0.95rem;
   }
 
   /* Make tap targets comfortable */
