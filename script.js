@@ -48,7 +48,8 @@ const els = {
   addProjectBtn: document.getElementById("addProjectBtn"),
   editProjectBtn: document.getElementById("editProjectBtn"),
   shareProjectBtn: document.getElementById("shareProjectBtn"),
-
+  deleteProjectBtn: document.getElementById("deleteProjectBtn"),
+  
   projectView: document.getElementById("projectView"),
   noProjectMessage: document.getElementById("noProjectMessage"),
   projectName: document.getElementById("projectName"),
@@ -294,6 +295,7 @@ function renderCurrentProject() {
 
   // Toggle edit controls
   els.editProjectBtn.style.display = canEdit ? "inline-flex" : "none";
+  els.deleteProjectBtn.style.display = canEdit ? "inline-flex" : "none";
   if (els.addExpenseCard) {
     els.addExpenseCard.style.display = canEdit ? "block" : "none";
   }
@@ -814,6 +816,60 @@ async function onProjectFormSubmit(event) {
   closeProjectModal();
 }
 
+async function onDeleteProject() {
+  const project = getCurrentProject();
+  if (!project) {
+    alert("No project selected.");
+    return;
+  }
+  if (!isOwner(project)) {
+    alert("Only the project owner can delete this project.");
+    return;
+  }
+
+  const ok = confirm(
+    `Delete project "${project.name}" and all its expenses?\nThis cannot be undone.`
+  );
+  if (!ok) return;
+
+  try {
+    // 1. Delete all expenses in subcollection
+    const expSnap = await getDocs(expensesCol(project.id));
+    const deletions = [];
+    expSnap.forEach((d) => {
+      deletions.push(deleteDoc(d.ref));
+    });
+    await Promise.all(deletions);
+
+    // 2. Delete the project document itself
+    await deleteDoc(projectDoc(project.id));
+
+    // 3. Update local cache
+    projectsCache = projectsCache.filter((p) => p.id !== project.id);
+
+    // 4. If URL had ?project=..., clear it if it was this one
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("project") === project.id) {
+      url.searchParams.delete("project");
+      window.history.replaceState({}, "", url.toString());
+    }
+
+    // 5. Move to another project (if any)
+    if (projectsCache.length) {
+      currentProjectId = projectsCache[0].id;
+      await loadExpensesForProject(currentProjectId);
+    } else {
+      currentProjectId = null;
+    }
+
+    renderProjectsList();
+    renderCurrentProject();
+  } catch (e) {
+    console.error("Failed to delete project:", e);
+    alert("Failed to delete project: " + (e.message || e.code));
+  }
+}
+
 // ---------- Share link ----------
 
 function onShareProject() {
@@ -863,6 +919,7 @@ function init() {
     openProjectModal(project.id);
   });
   els.shareProjectBtn.addEventListener("click", onShareProject);
+  els.deleteProjectBtn.addEventListener("click", onDeleteProject);
 
   els.cancelProjectBtn.addEventListener("click", closeProjectModal);
   els.projectForm.addEventListener("submit", onProjectFormSubmit);
