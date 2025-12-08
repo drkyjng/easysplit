@@ -723,7 +723,7 @@ async function onAddExpense(event) {
 
   const isEditing = !!editingExpenseId;
 
-  // For HKD, we force raw rate = 1
+  // For HKD, force raw rate = 1
   if (currency === "HKD") {
     els.expRateRaw.value = "1";
   }
@@ -800,6 +800,7 @@ async function onAddExpense(event) {
       }
     }
   }
+
   // ----- custom HKD split -----
   else if (splitMode === "custom") {
     const inputs = Array.from(
@@ -836,8 +837,9 @@ async function onAddExpense(event) {
 
   // ----- build expense object (create OR update) -----
   let expense;
+
   if (isEditing) {
-    // find existing and update its properties
+    // find existing expense in current project and update it
     expense =
       (project.expenses || []).find((e) => e.id === editingExpenseId) || {
         id: editingExpenseId,
@@ -858,7 +860,7 @@ async function onAddExpense(event) {
       splitMode,
       shares:
         splitMode === "custom" || splitMode === "percent" ? shares : null,
-      // DO NOT touch createdAt here; keep original
+      // keep original createdAt if present
     });
   } else {
     // new expense
@@ -882,13 +884,16 @@ async function onAddExpense(event) {
     };
   }
 
+  // isNew = !isEditing
   await saveExpense(project.id, expense, !isEditing);
   editingExpenseId = null;
 
   const refreshedProject = getCurrentProject();
-  await loadExpensesForProject(refreshedProject.id);
-  renderExpenses(refreshedProject);
-  renderBalances(refreshedProject);
+  if (refreshedProject) {
+    await loadExpensesForProject(refreshedProject.id);
+    renderExpenses(refreshedProject);
+    renderBalances(refreshedProject);
+  }
 
   clearExpenseForm();
 }
@@ -973,7 +978,7 @@ function onEditExpense(project, expenseId) {
     r.checked = r.value === mode;
   });
 
-  // Rebuild rows to align with current members
+  // Build rows to match current members
   buildPercentSplitRows(project);
   buildCustomSplitRows(project);
 
