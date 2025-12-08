@@ -276,22 +276,33 @@
     <div class="modal-dialog">
       <h2 id="projectModalTitle">New project</h2>
       <form id="projectForm" class="form-grid">
-        <label>
-          Project name
-          <input type="text" id="projectNameInput" required placeholder="e.g. Osaka Trip 2025" />
-        </label>
-        <label class="full-width">
-          Members (comma-separated)
-          <input type="text" id="projectMembersInput" required placeholder="e.g. You, Alice, Bob" />
-          <span class="small muted">
-            Include yourself (matching the “Your name” field) so splits work correctly.
-          </span>
-        </label>
-        <div class="full-width form-actions">
-          <button type="button" id="cancelProjectBtn" class="btn secondary">Cancel</button>
-          <button type="submit" class="btn primary">Save</button>
-        </div>
-      </form>
+  <label>
+    Project name
+    <input type="text" id="projectNameInput" required placeholder="e.g. Osaka Trip 2025" />
+  </label>
+
+  <label class="full-width">
+    Members (comma-separated)
+    <input type="text" id="projectMembersInput" required placeholder="e.g. You, Alice, Bob" />
+    <span class="small muted">
+      Include yourself (matching the “Your name” field) so splits work correctly.
+    </span>
+  </label>
+
+  <label class="full-width">
+    Editors (Google email, comma-separated, optional)
+    <input type="text" id="projectEditorsInput" placeholder="e.g. friend1@gmail.com, friend2@hku.hk" />
+    <span class="small muted">
+      These Google accounts can add/delete expenses and mark settlements. Only you (owner) can delete the project
+      or change this list.
+    </span>
+  </label>
+
+  <div class="full-width form-actions">
+    <button type="button" id="cancelProjectBtn" class="btn secondary">Cancel</button>
+    <button type="submit" class="btn primary">Save</button>
+  </div>
+</form>
     </div>
   </div>
 </body>
