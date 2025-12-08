@@ -74,6 +74,12 @@ a:hover {
   padding-right: env(safe-area-inset-right);
 }
 
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
 .app-title h1 {
   margin: 0;
   font-size: 1.35rem;
