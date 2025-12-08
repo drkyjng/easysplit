@@ -1,6 +1,4 @@
-// ---------- Storage ----------
-
-const STORAGE_KEY = "hkdBillSplitterData_v1";
+const STORAGE_KEY = "hkdBillSplitterData_v2";
 
 function loadState() {
   try {
@@ -27,12 +25,9 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-// Simple id generator
 function newId() {
   return "id_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
-
-// ---------- Global state & DOM ----------
 
 let state = loadState();
 
@@ -47,6 +42,7 @@ const els = {
   projectMeta: document.getElementById("projectMeta"),
   membersList: document.getElementById("membersList"),
   balancesTableBody: document.querySelector("#balancesTable tbody"),
+
   addExpenseForm: document.getElementById("addExpenseForm"),
   expDescription: document.getElementById("expDescription"),
   expDate: document.getElementById("expDate"),
@@ -54,11 +50,15 @@ const els = {
   expCurrency: document.getElementById("expCurrency"),
   expAmount: document.getElementById("expAmount"),
   expRateSource: document.getElementById("expRateSource"),
-  expRate: document.getElementById("expRate"),
+  expRateRaw: document.getElementById("expRateRaw"),
+  expFeePercent: document.getElementById("expFeePercent"),
   fetchRateBtn: document.getElementById("fetchRateBtn"),
   expParticipants: document.getElementById("expParticipants"),
+  customSplitContainer: document.getElementById("customSplitContainer"),
+  customSplitBody: document.getElementById("customSplitBody"),
+  customSplitSummary: document.getElementById("customSplitSummary"),
   expensesTableBody: document.querySelector("#expensesTable tbody"),
-  // Modal
+
   projectModal: document.getElementById("projectModal"),
   projectModalTitle: document.getElementById("projectModalTitle"),
   projectForm: document.getElementById("projectForm"),
@@ -69,10 +69,7 @@ const els = {
 
 let editingProjectId = null;
 
-// ---------- Init ----------
-
 function init() {
-  // your name
   els.yourNameInput.value = state.yourName || "";
   els.yourNameInput.addEventListener("input", () => {
     state.yourName = els.yourNameInput.value.trim();
@@ -80,20 +77,30 @@ function init() {
     renderCurrentProject();
   });
 
-  // projects
   els.addProjectBtn.addEventListener("click", () => openProjectModal(null));
   els.editProjectBtn.addEventListener("click", () => {
     if (!state.currentProjectId) return;
     openProjectModal(state.currentProjectId);
   });
 
-  // modal actions
   els.cancelProjectBtn.addEventListener("click", closeProjectModal);
   els.projectForm.addEventListener("submit", onProjectFormSubmit);
 
-  // expense form
   els.addExpenseForm.addEventListener("submit", onAddExpense);
   els.fetchRateBtn.addEventListener("click", onFetchRate);
+
+  // split mode toggle
+  els.addExpenseForm.elements["splitMode"].forEach((r) => {
+    r.addEventListener("change", () => {
+      const mode = getSplitMode();
+      if (mode === "custom") {
+        els.customSplitContainer.classList.remove("hidden");
+        updateCustomSplitSummary();
+      } else {
+        els.customSplitContainer.classList.add("hidden");
+      }
+    });
+  });
 
   renderProjectsList();
   renderCurrentProject();
@@ -101,7 +108,9 @@ function init() {
 
 document.addEventListener("DOMContentLoaded", init);
 
-// ---------- Rendering: projects ----------
+function getCurrentProject() {
+  return state.projects.find((p) => p.id === state.currentProjectId) || null;
+}
 
 function renderProjectsList() {
   els.projectsList.innerHTML = "";
@@ -131,10 +140,6 @@ function renderProjectsList() {
   });
 }
 
-function getCurrentProject() {
-  return state.projects.find((p) => p.id === state.currentProjectId) || null;
-}
-
 function renderCurrentProject() {
   const project = getCurrentProject();
 
@@ -143,6 +148,7 @@ function renderCurrentProject() {
     els.noProjectMessage.style.display = "block";
     return;
   }
+
   els.noProjectMessage.style.display = "none";
   els.projectView.style.display = "block";
 
@@ -156,8 +162,6 @@ function renderCurrentProject() {
   renderExpenses(project);
   renderBalances(project);
 }
-
-// ---------- Members & balances ----------
 
 function renderMembers(project) {
   els.membersList.innerHTML = "";
@@ -174,7 +178,6 @@ function isMe(member) {
   return member.name.toLowerCase() === state.yourName.trim().toLowerCase();
 }
 
-// Compute balances: positive means they owe this amount (in HKD)
 function computeBalances(project) {
   const balances = {};
   project.members.forEach((m) => {
@@ -185,14 +188,23 @@ function computeBalances(project) {
     const participants = exp.participantIds || [];
     if (!participants.length) return;
 
-    const perPerson = exp.amountHKD / participants.length;
-
-    // Each participant owes perPerson to the payer
-    participants.forEach((pid) => {
-      if (pid === exp.payerId) return; // They don't owe themselves
-      balances[pid] += perPerson;
-      balances[exp.payerId] -= perPerson;
-    });
+    if (exp.splitMode === "custom" && exp.shares) {
+      // shares: { memberId: hkAmount }
+      Object.entries(exp.shares).forEach(([memberId, share]) => {
+        const s = Number(share) || 0;
+        if (!project.members.find((m) => m.id === memberId)) return;
+        if (memberId === exp.payerId) return;
+        balances[memberId] += s;
+        balances[exp.payerId] -= s;
+      });
+    } else {
+      const perPerson = exp.amountHKD / participants.length;
+      participants.forEach((pid) => {
+        if (pid === exp.payerId) return;
+        balances[pid] += perPerson;
+        balances[exp.payerId] -= perPerson;
+      });
+    }
   });
 
   return balances;
@@ -213,11 +225,11 @@ function renderBalances(project) {
     const value = balances[m.id] || 0;
     balTd.textContent = value.toFixed(2);
     if (value > 0.01) {
-      balTd.style.color = "#16a34a"; // they owe
+      balTd.style.color = "#4ade80";
     } else if (value < -0.01) {
-      balTd.style.color = "#dc2626"; // you owe
+      balTd.style.color = "#f97373";
     } else {
-      balTd.style.color = "#6b7280";
+      balTd.style.color = "#9ca3af";
     }
     tr.appendChild(balTd);
 
@@ -237,8 +249,6 @@ function renderBalances(project) {
   });
 }
 
-// ---------- Expense form ----------
-
 function renderExpenseFormMembers(project) {
   // payer select
   els.expPayer.innerHTML = "";
@@ -257,7 +267,7 @@ function renderExpenseFormMembers(project) {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = m.id;
-    checkbox.checked = true; // default: all included
+    checkbox.checked = true;
 
     const span = document.createElement("span");
     span.textContent = m.name + (isMe(m) ? " (you)" : "");
@@ -266,6 +276,66 @@ function renderExpenseFormMembers(project) {
     label.appendChild(span);
     els.expParticipants.appendChild(label);
   });
+
+  buildCustomSplitRows(project);
+}
+
+function buildCustomSplitRows(project) {
+  els.customSplitBody.innerHTML = "";
+  project.members.forEach((m) => {
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    nameTd.textContent = m.name + (isMe(m) ? " (you)" : "");
+    tr.appendChild(nameTd);
+
+    const shareTd = document.createElement("td");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "0.01";
+    input.dataset.memberId = m.id;
+    input.placeholder = "0.00";
+    input.addEventListener("input", updateCustomSplitSummary);
+    shareTd.appendChild(input);
+    tr.appendChild(shareTd);
+
+    els.customSplitBody.appendChild(tr);
+  });
+  updateCustomSplitSummary();
+}
+
+function getParticipants() {
+  return Array.from(
+    els.expParticipants.querySelectorAll("input[type=checkbox]:checked")
+  ).map((cb) => cb.value);
+}
+
+function getSplitMode() {
+  const checked = Array.from(els.addExpenseForm.elements["splitMode"]).find(
+    (r) => r.checked
+  );
+  return checked ? checked.value : "equal";
+}
+
+function updateCustomSplitSummary() {
+  const inputs = Array.from(els.customSplitBody.querySelectorAll("input[type=number]"));
+  const shares = {};
+  let sum = 0;
+  inputs.forEach((inp) => {
+    const v = parseFloat(inp.value || "0");
+    if (v > 0) {
+      shares[inp.dataset.memberId] = v;
+      sum += v;
+    }
+  });
+  if (sum > 0) {
+    els.customSplitSummary.textContent = `Total custom shares: ${sum.toFixed(
+      2
+    )} HKD (this should match the HKD total).`;
+  } else {
+    els.customSplitSummary.textContent = "No custom shares entered yet.";
+  }
 }
 
 async function onFetchRate() {
@@ -276,15 +346,13 @@ async function onFetchRate() {
     return;
   }
   if (currency === "HKD") {
-    els.expRate.value = "1";
+    els.expRateRaw.value = "1";
     return;
   }
 
   try {
     els.fetchRateBtn.disabled = true;
     els.fetchRateBtn.textContent = "Fetching...";
-    // Frankfurter historical rates to HKD
-    // e.g. https://api.frankfurter.app/2024-01-01?from=USD&to=HKD
     const url = `https://api.frankfurter.app/${encodeURIComponent(
       date
     )}?from=${encodeURIComponent(currency)}&to=HKD`;
@@ -294,7 +362,7 @@ async function onFetchRate() {
     if (!data.rates || typeof data.rates.HKD !== "number") {
       throw new Error("No HKD rate found");
     }
-    els.expRate.value = data.rates.HKD.toFixed(6);
+    els.expRateRaw.value = data.rates.HKD.toFixed(6);
   } catch (err) {
     console.error(err);
     alert("Failed to fetch rate. You can enter it manually.");
@@ -313,25 +381,60 @@ function onAddExpense(event) {
   const date = els.expDate.value;
   const payerId = els.expPayer.value;
   const currency = els.expCurrency.value.trim().toUpperCase();
-  const amount = parseFloat(els.expAmount.value);
+  const amountForeign = parseFloat(els.expAmount.value);
   const rateSource = els.expRateSource.value;
-  const rate = parseFloat(els.expRate.value || "0");
+  const rateRaw = parseFloat(els.expRateRaw.value || "0");
+  const feePercent = parseFloat(els.expFeePercent.value || "0") || 0;
 
-  if (!description || !date || !payerId || !currency || !amount || !rate) {
-    alert("Please fill in all fields and make sure amount and rate are valid.");
+  if (!description || !date || !payerId || !currency || !amountForeign || !rateRaw) {
+    alert("Please fill in all fields and make sure amount and raw rate are valid.");
     return;
   }
 
-  const participantIds = Array.from(
-    els.expParticipants.querySelectorAll("input[type=checkbox]:checked")
-  ).map((cb) => cb.value);
-
+  const participantIds = getParticipants();
   if (!participantIds.length) {
     alert("Choose at least one participant.");
     return;
   }
 
-  const amountHKD = amount * rate;
+  const effectiveRate = rateRaw * (1 + feePercent / 100);
+  const amountHKD = amountForeign * effectiveRate;
+
+  const splitMode = getSplitMode();
+  const shares = {};
+
+  if (splitMode === "custom") {
+    const inputs = Array.from(
+      els.customSplitBody.querySelectorAll("input[type=number]")
+    );
+    let sumShares = 0;
+    inputs.forEach((inp) => {
+      const v = parseFloat(inp.value || "0");
+      const memberId = inp.dataset.memberId;
+      if (participantIds.includes(memberId) && v > 0) {
+        shares[memberId] = v;
+        sumShares += v;
+      }
+    });
+    if (Object.keys(shares).length === 0) {
+      alert("Enter custom shares for at least one participant.");
+      return;
+    }
+    const diff = Math.abs(sumShares - amountHKD);
+    if (diff > 0.5) {
+      if (
+        !confirm(
+          `Warning: total custom shares (${sumShares.toFixed(
+            2
+          )} HKD) differ from HKD total (${amountHKD.toFixed(
+            2
+          )} HKD) by ${diff.toFixed(2)}. Save anyway?`
+        )
+      ) {
+        return;
+      }
+    }
+  }
 
   const expense = {
     id: newId(),
@@ -339,21 +442,24 @@ function onAddExpense(event) {
     date,
     payerId,
     currency,
-    amountForeign: amount,
+    amountForeign,
     rateSource,
-    rate,
+    rateRaw,
+    feePercent,
+    effectiveRate,
     amountHKD,
     participantIds,
+    splitMode,
+    shares: splitMode === "custom" ? shares : null,
     createdAt: new Date().toISOString(),
   };
 
-  project.expenses.unshift(expense); // newest first
+  project.expenses.unshift(expense);
   saveState();
 
-  // reset some fields
   els.expDescription.value = "";
   els.expAmount.value = "";
-  // keep date, currency, rate etc. to make repeated entries easier
+  // keep date / currency / rates to ease repeated input
 
   renderExpenses(project);
   renderBalances(project);
@@ -372,7 +478,7 @@ function renderExpenses(project) {
   if (!project.expenses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 9;
+    td.colSpan = 10;
     td.textContent = "No expenses yet.";
     td.className = "muted small";
     tr.appendChild(td);
@@ -403,22 +509,23 @@ function renderExpenses(project) {
     const rateSourceTd = document.createElement("td");
     rateSourceTd.textContent =
       exp.rateSource === "official"
-        ? `Official (${exp.rate.toFixed(6)})`
+        ? "Official"
         : exp.rateSource === "visa"
-        ? `Visa (${exp.rate.toFixed(6)})`
+        ? "Visa"
         : exp.rateSource === "mastercard"
-        ? `Mastercard (${exp.rate.toFixed(6)})`
-        : `Custom (${exp.rate.toFixed(6)})`;
+        ? "Mastercard"
+        : "Custom";
     tr.appendChild(rateSourceTd);
+
+    const effTd = document.createElement("td");
+    effTd.textContent = `${exp.effectiveRate.toFixed(6)} (fee ${exp.feePercent.toFixed(
+      2
+    )}%)`;
+    tr.appendChild(effTd);
 
     const hkdTd = document.createElement("td");
     hkdTd.textContent = exp.amountHKD.toFixed(2);
     tr.appendChild(hkdTd);
-
-    const perPersonTd = document.createElement("td");
-    const perPerson = exp.amountHKD / (exp.participantIds.length || 1);
-    perPersonTd.textContent = perPerson.toFixed(2);
-    tr.appendChild(perPersonTd);
 
     const participantsTd = document.createElement("td");
     const names = exp.participantIds
@@ -427,6 +534,21 @@ function renderExpenses(project) {
       .map((m) => m.name);
     participantsTd.textContent = names.join(", ");
     tr.appendChild(participantsTd);
+
+    const splitTd = document.createElement("td");
+    if (exp.splitMode === "custom" && exp.shares) {
+      const parts = Object.entries(exp.shares)
+        .map(([id, share]) => {
+          const m = project.members.find((mm) => mm.id === id);
+          return m ? `${m.name}: ${Number(share).toFixed(2)}` : null;
+        })
+        .filter(Boolean);
+      splitTd.textContent = parts.join(" | ");
+    } else {
+      const perPerson = exp.amountHKD / (exp.participantIds.length || 1);
+      splitTd.textContent = `Equal: ${perPerson.toFixed(2)} each`;
+    }
+    tr.appendChild(splitTd);
 
     const actionsTd = document.createElement("td");
     const delBtn = document.createElement("button");
@@ -439,8 +561,6 @@ function renderExpenses(project) {
     els.expensesTableBody.appendChild(tr);
   });
 }
-
-// ---------- Project modal ----------
 
 function openProjectModal(projectId) {
   editingProjectId = projectId;
@@ -486,7 +606,6 @@ function onProjectFormSubmit(event) {
   if (editingProjectId) {
     const project = state.projects.find((p) => p.id === editingProjectId);
     if (!project) return;
-    // NOTE: simple approach: replace members and clear expenses
     const keepExpenses = project.expenses || [];
     if (
       keepExpenses.length &&
@@ -495,6 +614,7 @@ function onProjectFormSubmit(event) {
       )
     ) {
       project.expenses = [];
+      project.settled = {};
     }
     project.name = name;
     project.members = members;
