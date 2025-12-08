@@ -344,6 +344,32 @@ select:focus {
   align-items: center;
 }
 
+.inline-input input {
+  flex: 1;
+}
+
+.inline-input .btn {
+  flex-shrink: 0;
+}
+
+.currency-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.currency-row select {
+  min-width: 140px;
+}
+
+.currency-row input[type="text"] {
+  max-width: 90px;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .help {
   display: block;
   margin-top: 4px;
