@@ -99,6 +99,7 @@ const els = {
 };
 
 let editingProjectId = null;
+let editingExpenseId = null;
 
 // ---------- Utility ----------
 
@@ -541,6 +542,35 @@ function renderExpenseFormMembers(project) {
   buildCustomSplitRows(project);
 }
 
+function clearExpenseForm() {
+  editingExpenseId = null;
+  els.addExpenseForm.reset();
+
+  // Default to HKD
+  els.expCurrency.value = "HKD";
+  if (els.expCurrencyOther) els.expCurrencyOther.value = "";
+
+  // Make all participants checked again (for current project)
+  const project = getCurrentProject();
+  if (project) {
+    Array.from(
+      els.expParticipants.querySelectorAll("input[type=checkbox]")
+    ).forEach((cb) => {
+      cb.checked = true;
+    });
+  }
+
+  // Hide custom/percent containers
+  els.customSplitContainer.classList.add("hidden");
+  els.percentSplitContainer.classList.add("hidden");
+
+  updateCurrencyUI();
+  updateHKDTotalPreview();
+
+  const submitBtn = els.addExpenseForm.querySelector("button[type=submit]");
+  if (submitBtn) submitBtn.textContent = "Add expense";
+}
+
 function buildCustomSplitRows(project) {
   els.customSplitBody.innerHTML = "";
   (project.members || []).forEach((m) => {
@@ -692,6 +722,8 @@ async function onAddExpense(event) {
   const amountForeign = parseFloat(els.expAmount.value);
   const rateSource = els.expRateSource.value;
 
+  const isEditing = !!editingExpenseId;
+
   // For HKD, we force raw rate = 1
   if (currency === "HKD") {
     els.expRateRaw.value = "1";
@@ -720,6 +752,7 @@ async function onAddExpense(event) {
   const splitMode = getSplitMode();
   const shares = {};
 
+  // ----- percent split -----
   if (splitMode === "percent") {
     const inputs = Array.from(
       els.percentSplitBody.querySelectorAll("input[type=number]")
@@ -767,7 +800,9 @@ async function onAddExpense(event) {
         return;
       }
     }
-  } else if (splitMode === "custom") {
+  }
+  // ----- custom HKD split -----
+  else if (splitMode === "custom") {
     const inputs = Array.from(
       els.customSplitBody.querySelectorAll("input[type=number]")
     );
@@ -800,37 +835,66 @@ async function onAddExpense(event) {
     }
   }
 
-  const expense = {
-    id: newId(),
-    description,
-    date,
-    payerId,
-    currency,
-    amountForeign,
-    rateSource,
-    rateRaw,
-    feePercent,
-    effectiveRate,
-    amountHKD,
-    participantIds,
-    splitMode,
-    shares: (splitMode === "custom" || splitMode === "percent") ? shares : null,
-    createdAt: new Date().toISOString(),
-  };
+  // ----- build expense object (create OR update) -----
+  let expense;
+  if (isEditing) {
+    // find existing and update its properties
+    expense =
+      (project.expenses || []).find((e) => e.id === editingExpenseId) || {
+        id: editingExpenseId,
+      };
 
-  await saveExpense(project.id, expense, true);
+    Object.assign(expense, {
+      description,
+      date,
+      payerId,
+      currency,
+      amountForeign,
+      rateSource,
+      rateRaw,
+      feePercent,
+      effectiveRate,
+      amountHKD,
+      participantIds,
+      splitMode,
+      shares:
+        splitMode === "custom" || splitMode === "percent" ? shares : null,
+      // DO NOT touch createdAt here; keep original
+    });
+  } else {
+    // new expense
+    expense = {
+      id: newId(),
+      description,
+      date,
+      payerId,
+      currency,
+      amountForeign,
+      rateSource,
+      rateRaw,
+      feePercent,
+      effectiveRate,
+      amountHKD,
+      participantIds,
+      splitMode,
+      shares:
+        splitMode === "custom" || splitMode === "percent" ? shares : null,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  await saveExpense(project.id, expense, !isEditing);
+  editingExpenseId = null;
+
   const refreshedProject = getCurrentProject();
   await loadExpensesForProject(refreshedProject.id);
   renderExpenses(refreshedProject);
   renderBalances(refreshedProject);
 
-  els.expDescription.value = "";
-  els.expAmount.value = "";
-  updateHKDTotalPreview();
+  clearExpenseForm();
 }
 
 // ---------- deleteExpense with Firestore ----------
-
 async function deleteExpense(project, expenseId) {
   if (!canEditProject(project)) {
     alert("Only the owner or shared editors can delete expenses.");
@@ -838,16 +902,127 @@ async function deleteExpense(project, expenseId) {
   }
   if (!confirm("Delete this expense?")) return;
 
-  await deleteDoc(doc(expensesCol(project.id), expenseId));
+  try {
+    // Delete from Firestore
+    await deleteDoc(doc(expensesCol(project.id), expenseId));
 
-  project.expenses = (project.expenses || []).filter((e) => e.id !== expenseId);
-  const idx = projectsCache.findIndex((p) => p.id === project.id);
-  if (idx !== -1) {
-    projectsCache[idx].expenses = project.expenses;
+    // Update local project cache
+    project.expenses = (project.expenses || []).filter((e) => e.id !== expenseId);
+    const idx = projectsCache.findIndex((p) => p.id === project.id);
+    if (idx !== -1) {
+      projectsCache[idx].expenses = project.expenses;
+    }
+
+    // Re-load from Firestore to be sure it's gone
+    const refreshed = getCurrentProject();
+    if (refreshed) {
+      await loadExpensesForProject(refreshed.id);
+      renderExpenses(refreshed);
+      renderBalances(refreshed);
+    }
+  } catch (e) {
+    console.error("Failed to delete expense:", e);
+    alert("Failed to delete expense: " + (e.message || e.code));
+  }
+}
+
+function onEditExpense(project, expenseId) {
+  if (!canEditProject(project)) {
+    alert("Only the owner or shared editors can edit expenses.");
+    return;
   }
 
-  renderExpenses(project);
-  renderBalances(project);
+  const exp = (project.expenses || []).find((e) => e.id === expenseId);
+  if (!exp) {
+    alert("Expense not found.");
+    return;
+  }
+
+  editingExpenseId = exp.id;
+
+  // Basic fields
+  els.expDescription.value = exp.description || "";
+  els.expDate.value = exp.date || "";
+  els.expPayer.value = exp.payerId || "";
+
+  // Currency
+  const code = (exp.currency || "HKD").toUpperCase();
+  if (["HKD", "USD", "JPY", "CNY"].includes(code)) {
+    els.expCurrency.value = code;
+    if (els.expCurrencyOther) els.expCurrencyOther.value = "";
+  } else {
+    els.expCurrency.value = "OTHER";
+    if (els.expCurrencyOther) els.expCurrencyOther.value = code;
+  }
+  updateCurrencyUI();
+
+  els.expAmount.value =
+    exp.amountForeign != null ? String(exp.amountForeign) : "";
+  els.expRateSource.value = exp.rateSource || "official";
+  els.expRateRaw.value =
+    exp.rateRaw != null ? String(exp.rateRaw) : "";
+  els.expFeePercent.value =
+    exp.feePercent != null ? String(exp.feePercent) : "";
+
+  // Participants
+  const partIds = exp.participantIds || [];
+  Array.from(
+    els.expParticipants.querySelectorAll("input[type=checkbox]")
+  ).forEach((cb) => {
+    cb.checked = partIds.includes(cb.value);
+  });
+
+  // Split mode
+  const mode = exp.splitMode || "equal";
+  Array.from(els.addExpenseForm.elements["splitMode"]).forEach((r) => {
+    r.checked = r.value === mode;
+  });
+
+  // Rebuild rows to align with current members
+  buildPercentSplitRows(project);
+  buildCustomSplitRows(project);
+
+  if ((mode === "custom" || mode === "percent") && exp.shares) {
+    const isPercent = mode === "percent";
+    const amountHKD = exp.amountHKD || 0;
+
+    if (mode === "custom") {
+      els.customSplitContainer.classList.remove("hidden");
+      els.percentSplitContainer.classList.add("hidden");
+    } else {
+      els.percentSplitContainer.classList.remove("hidden");
+      els.customSplitContainer.classList.add("hidden");
+    }
+
+    const container =
+      mode === "custom" ? els.customSplitBody : els.percentSplitBody;
+
+    Array.from(
+      container.querySelectorAll("input[type=number]")
+    ).forEach((inp) => {
+      const id = inp.dataset.memberId;
+      const shareHKD = Number(exp.shares[id] || 0);
+      if (!shareHKD) {
+        inp.value = "";
+      } else if (isPercent && amountHKD > 0) {
+        const pct = (shareHKD / amountHKD) * 100;
+        inp.value = pct.toFixed(2);
+      } else {
+        inp.value = shareHKD.toFixed(2);
+      }
+    });
+
+    if (mode === "custom") updateCustomSplitSummary();
+    if (mode === "percent") updatePercentSplitSummary();
+  } else {
+    els.customSplitContainer.classList.add("hidden");
+    els.percentSplitContainer.classList.add("hidden");
+  }
+
+  updateHKDTotalPreview();
+
+  const submitBtn = els.addExpenseForm.querySelector("button[type=submit]");
+  if (submitBtn) submitBtn.textContent = "Save changes";
 }
 
 // ---------- Render expenses table ----------
@@ -948,16 +1123,23 @@ function renderExpenses(project) {
     tr.appendChild(lastTd);
 
     const actionsTd = document.createElement("td");
-    if (canEdit) {
-      const delBtn = document.createElement("button");
-      delBtn.className = "btn secondary small";
-      delBtn.textContent = "Delete";
-      delBtn.addEventListener("click", () => deleteExpense(project, exp.id));
-      actionsTd.appendChild(delBtn);
-    } else {
-      actionsTd.textContent = "";
-    }
-    tr.appendChild(actionsTd);
+if (canEdit) {
+  const editBtn = document.createElement("button");
+  editBtn.className = "btn secondary small";
+  editBtn.textContent = "Edit";
+  editBtn.addEventListener("click", () => onEditExpense(project, exp.id));
+  actionsTd.appendChild(editBtn);
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "btn secondary small";
+  delBtn.style.marginLeft = "4px";
+  delBtn.textContent = "Delete";
+  delBtn.addEventListener("click", () => deleteExpense(project, exp.id));
+  actionsTd.appendChild(delBtn);
+} else {
+  actionsTd.textContent = "";
+}
+tr.appendChild(actionsTd);
 
     els.expensesTableBody.appendChild(tr);
   });
