@@ -8,14 +8,14 @@
 </head>
 <body>
   <div class="app">
-    <header class="app-header">
+    <header class="app-header glass">
       <div class="app-title">
         <h1>HKD Bill Splitter</h1>
-        <p>Multi-currency projects with HKD conversion</p>
+        <p>Multi-currency projects with HKD conversion and custom splits</p>
       </div>
       <div class="user-settings">
         <label>
-          Your name:
+          Your name
           <input type="text" id="yourNameInput" placeholder="e.g. Justin" />
         </label>
       </div>
@@ -23,7 +23,7 @@
 
     <main class="app-main">
       <!-- Sidebar: projects -->
-      <aside class="sidebar">
+      <aside class="sidebar glass">
         <div class="sidebar-header">
           <h2>Projects</h2>
           <button id="addProjectBtn" class="btn primary small">+ New</button>
@@ -33,27 +33,27 @@
 
       <!-- Main content: current project -->
       <section class="content">
-        <div id="noProjectMessage" class="card" style="display:none;">
+        <div id="noProjectMessage" class="card glass" style="display:none;">
           <h2>No projects yet</h2>
           <p>Create a project for each trip / event where you split bills.</p>
         </div>
 
         <div id="projectView" style="display:none;">
-          <div class="project-header card">
+          <div class="project-header card glass">
             <div>
               <h2 id="projectName"></h2>
-              <p id="projectMeta" class="muted"></p>
+              <p id="projectMeta" class="muted small"></p>
             </div>
             <button id="editProjectBtn" class="btn secondary small">Edit project</button>
           </div>
 
           <!-- Members and balances -->
           <div class="grid-2">
-            <div class="card">
+            <div class="card glass">
               <h3>Members</h3>
               <ul id="membersList" class="pill-list"></ul>
             </div>
-            <div class="card">
+            <div class="card glass">
               <h3>Balances (HKD)</h3>
               <p class="muted small">Positive: they owe this amount. Negative: you owe them.</p>
               <table class="table" id="balancesTable">
@@ -70,12 +70,12 @@
           </div>
 
           <!-- Add expense -->
-          <div class="card">
+          <div class="card glass">
             <h3>Add expense</h3>
             <form id="addExpenseForm" class="form-grid">
               <label>
                 Description
-                <input type="text" id="expDescription" required placeholder="Dinner, Taxi, Theme park tickets..." />
+                <input type="text" id="expDescription" required placeholder="Dinner, Taxi, Tickets..." />
               </label>
               <label>
                 Date
@@ -96,29 +96,61 @@
               <label>
                 Rate source
                 <select id="expRateSource">
-                  <option value="official">Official rate (ECB api)</option>
+                  <option value="official">Official rate (ECB API)</option>
                   <option value="visa">Visa rate (manual)</option>
                   <option value="mastercard">Mastercard rate (manual)</option>
                   <option value="custom">Custom rate</option>
                 </select>
               </label>
               <label>
-                FX rate → HKD
+                Raw FX rate → HKD
                 <div class="inline-input">
-                  <input type="number" id="expRate" min="0" step="0.0001" placeholder="e.g. 0.056" />
+                  <input type="number" id="expRateRaw" min="0" step="0.0001" placeholder="e.g. 0.056" />
                   <button type="button" id="fetchRateBtn" class="btn secondary small">Fetch official</button>
                 </div>
                 <span class="help small">
-                  Official: uses Frankfurter (ECB). For Visa / Mastercard, check their calculators and type the rate:
+                  Official: fills this automatically. For Visa / Mastercard, use their calculators and enter the rate before fees:
                   <a href="https://www.visa.com.hk/travel-with-visa/exchange-rate-calculator.html" target="_blank">Visa</a>,
                   <a href="https://www.mastercard.com/global/currencyconversion/" target="_blank">Mastercard</a>.
+                </span>
+              </label>
+              <label>
+                Handling fee (%)
+                <input type="number" id="expFeePercent" min="0" step="0.01" placeholder="e.g. 1.5" />
+                <span class="help small">
+                  Applied on top of the raw rate. Effective rate = raw × (1 + fee% / 100).
                 </span>
               </label>
 
               <fieldset class="full-width">
                 <legend>Who shares this expense?</legend>
                 <div id="expParticipants" class="pill-list check-list"></div>
-                <p class="small muted">The amount (in HKD) will be split equally among selected members.</p>
+              </fieldset>
+
+              <fieldset class="full-width">
+                <legend>Split mode</legend>
+                <div class="split-mode-row">
+                  <label class="radio-pill">
+                    <input type="radio" name="splitMode" value="equal" checked />
+                    <span>Equal split</span>
+                  </label>
+                  <label class="radio-pill">
+                    <input type="radio" name="splitMode" value="custom" />
+                    <span>Custom per person (HKD)</span>
+                  </label>
+                </div>
+                <div id="customSplitContainer" class="custom-split hidden">
+                  <table class="table small-table">
+                    <thead>
+                      <tr>
+                        <th>Member</th>
+                        <th>Share (HKD)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="customSplitBody"></tbody>
+                  </table>
+                  <p class="small muted" id="customSplitSummary"></p>
+                </div>
               </fieldset>
 
               <div class="full-width form-actions">
@@ -128,7 +160,7 @@
           </div>
 
           <!-- Expenses list -->
-          <div class="card">
+          <div class="card glass">
             <h3>Expenses</h3>
             <table class="table" id="expensesTable">
               <thead>
@@ -138,9 +170,10 @@
                   <th>Payer</th>
                   <th>Foreign</th>
                   <th>Rate source</th>
+                  <th>Effective rate</th>
                   <th>HKD total</th>
-                  <th>Per person</th>
                   <th>Participants</th>
+                  <th>Split</th>
                   <th></th>
                 </tr>
               </thead>
@@ -155,7 +188,7 @@
   <!-- Project modal -->
   <div id="projectModal" class="modal hidden">
     <div class="modal-backdrop"></div>
-    <div class="modal-dialog">
+    <div class="modal-dialog glass">
       <h2 id="projectModalTitle">New project</h2>
       <form id="projectForm" class="form-grid">
         <label>
