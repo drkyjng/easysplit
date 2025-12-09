@@ -1197,18 +1197,40 @@ async function onProjectFormSubmit(event) {
     return;
   }
 
-  const members = membersRaw.map((n) => ({
-    id: newId(),
-    name: n
-  }));
-  const editorEmails = editorsRaw; // store as array of strings
+  // Build members, preserving existing IDs when editing
+  let members;
+  let project = null;
 
   if (editingProjectId) {
-    const project = projectsCache.find((p) => p.id === editingProjectId);
-    if (!project) {
-      alert("Project not found.");
-      return;
-    }
+    project = projectsCache.find((p) => p.id === editingProjectId) || null;
+    const existingMembers = project && Array.isArray(project.members)
+      ? project.members
+      : [];
+
+    members = membersRaw.map((n) => {
+      // try to reuse an existing member with the same name
+const found = existingMembers.find(
+  (m) => m.name.trim().toLowerCase() === n.toLowerCase()
+);
+      return found
+        ? { ...found, name: n }        // keep the old id
+        : { id: newId(), name: n };    // brand new member
+    });
+  } else {
+    // new project: all members are new
+    members = membersRaw.map((n) => ({
+      id: newId(),
+      name: n
+    }));
+  }
+
+  const editorEmails = editorsRaw; // store as array of strings
+
+if (editingProjectId) {
+  if (!project) {
+    alert("Project not found.");
+    return;
+  }
     if (!isOwner(project)) {
       alert("Only the owner can edit this project.");
       return;
