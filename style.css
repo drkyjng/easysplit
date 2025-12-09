@@ -706,4 +706,8 @@ select:focus {
     flex-wrap: wrap;
     gap: 4px;
   }
+
+  #membersCard {
+    display: none;
+  }
 }
