@@ -710,4 +710,8 @@ select:focus {
   #membersCard {
     display: none;
   }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
 }
