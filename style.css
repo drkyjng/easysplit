@@ -316,6 +316,24 @@ a:hover {
   background: #fecaca;
 }
 
+/* Yellow button style (for Edit project) */
+.btn.warning {
+  background: linear-gradient(135deg, #fde047, #facc15);
+  color: #78350f;
+  border: 1px solid #f59e0b;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(234, 179, 8, 0.35);
+}
+
+.btn.warning:hover {
+  background: linear-gradient(135deg, #facc15, #eab308);
+}
+
+.btn.warning:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 12px rgba(234, 179, 8, 0.3);
+}
+
 /* Inputs */
 
 input,
