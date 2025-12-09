@@ -712,6 +712,10 @@ select:focus {
   }
 
   .grid-2 {
-    grid-template-columns: 1fr;
+    display: block;
+  }
+
+  .grid-2 > .card {
+    width: 100%;
   }
 }
